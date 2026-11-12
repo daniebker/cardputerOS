@@ -4,6 +4,15 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-12
+
+### Added
+
+- **Ember Crown**, a roguelike: eight generated dungeon levels, field of view,
+  ten kinds of monsters, potions, scrolls, weapons and armor, permadeath, and a
+  saved run that survives reboots. The game rules are tested on the host by a
+  bot that plays hundreds of games.
+
 ## [0.1.0] - 2026-11-12
 
 First release for the M5Stack Cardputer ADV with an external 2.8" ILI9341 display.

@@ -144,6 +144,27 @@ are shaded, and other cells with the same digit (and matching pencil marks) ligh
 side panel shows the time and which digits are not finished yet. Best times (without
 hints) are kept per difficulty.
 
+## Ember Crown (roguelike)
+
+Launcher → **Ember Crown**. Explore eight randomly generated dungeon levels, fight what
+lives there, and take the Ember Crown (`*`) from its guardian on depth 8. Death is
+permanent; the run in progress is saved when you leave the app (and every 50 turns).
+
+| Keys | Action |
+|------|--------|
+| `h` `j` `k` `l`, or `;` `.` `,` `/`, or the arrows | Move; walk into a monster to attack |
+| `y` `u` `b` `n` | Move diagonally |
+| `g` | Pick up (Enter also works) |
+| `i` / `d` | Use or equip an item / drop an item |
+| `s` or space | Rest one turn |
+| `>` or Enter | Take the stairs down |
+| `?` | Help |
+| `N` | New game |
+
+`!` potions, `?` scrolls, `)` weapons, `[` armor, `$` gold. Hit points come back slowly
+over time, but resting is never completely safe: now and then something comes looking
+for you.
+
 ## Layout
 
 ```
@@ -156,7 +177,8 @@ src/os                   kernel (launcher, status bar, app lifecycle), UI toolki
 lib/vim                  vi-style editor engine (portable, unit tested on the host)
 lib/dav                  WebDAV / HTTP parsing (portable, unit tested)
 lib/sudoku               Sudoku generator and solver (portable, unit tested)
-src/apps                 apps: settings, ssh, notes, sudoku
+lib/rogue                roguelike game rules (portable, unit tested with a bot player)
+src/apps                 apps: settings, ssh, notes, sudoku, rogue
 test/                    host-side unit tests
 ```
 
