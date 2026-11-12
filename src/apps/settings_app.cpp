@@ -6,6 +6,7 @@
 #include <string>
 
 #include "../os/kernel.h"
+#include "../os/icons.h"
 #include "../os/net.h"
 #include "../os/storage.h"
 #include "../os/term_view.h"
@@ -170,6 +171,6 @@ private:
     std::vector<net::Network> nets_;
 };
 
-OS_REGISTER_APP(SettingsApp, "Settings", "Wi-Fi, display, time", theme::dracula::cyan);
+OS_REGISTER_APP(SettingsApp, "Settings", "Wi-Fi, display, time", theme::dracula::cyan, icons::gear, 90);
 
 }  // namespace

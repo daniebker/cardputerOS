@@ -4,6 +4,19 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-12
+
+### Changed
+
+- The home screen is a grid of app icons instead of a list. Icons are drawn
+  from shapes (no image files); running apps show a green dot, and the
+  selected app's description is shown at the bottom.
+
+### Fixed
+
+- The small (4x6) terminal font showed no readable text: its characters were
+  drawn above their row and cut off.
+
 ## [0.2.0] - 2026-11-12
 
 ### Added

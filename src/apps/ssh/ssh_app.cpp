@@ -6,6 +6,7 @@
 
 #include "../../hal/sdcard.h"
 #include "../../os/kernel.h"
+#include "../../os/icons.h"
 #include "../../os/net.h"
 #include "../../os/storage.h"
 #include "../../os/term_view.h"
@@ -491,6 +492,6 @@ private:
     bool sdOk_ = false;
 };
 
-OS_REGISTER_APP(SshApp, "SSH", "Remote terminal", theme::dracula::green);
+OS_REGISTER_APP(SshApp, "SSH", "Remote terminal", theme::dracula::green, icons::terminal, 10);
 
 }  // namespace

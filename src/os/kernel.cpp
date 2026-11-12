@@ -4,11 +4,13 @@
 #include <esp_system.h>
 #include <time.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
 #include "../hal/display.h"
 #include "../hal/keyboard.h"
+#include "icons.h"
 #include "net.h"
 #include "storage.h"
 #include "theme.h"
@@ -38,40 +40,135 @@ void launch(int index);
 void closeApp(int index);
 
 // ------------------------------------------------------------ launcher
+// Home screen: a grid of app icons.
 class Launcher {
 public:
     void resume() {
-        rebuild();
+        const int n = (int)slots().size();
+        if (sel_ >= n) sel_ = n - 1;
+        if (sel_ < 0) sel_ = 0;
         Gfx& g = gfx();
-        Rect r = ui::footer(g, content(), "Enter: open    x: close app    opt+` or G0: home");
-        listRect_ = ui::header(g, r, "cardputerOS");
-        list_.draw(g, listRect_);
+        g.startWrite();
+        Rect c = content();
+        g.fillRect(c.x, c.y, c.w, c.h, theme::bg);
+        g.endWrite();
+        scrollToSelection();
+        drawAll();
     }
+
     void onKey(const key::Event& ev) {
-        Gfx& g = gfx();
-        if (ev.is('x') && !list_.items.empty() && slots()[list_.selected].inst) {
-            closeApp(list_.selected);
+        const int n = (int)slots().size();
+        if (n == 0) return;
+        if (ev.is('x') && slots()[sel_].inst) {
+            closeApp(sel_);
             resume();
             return;
         }
-        if (list_.onKey(g, listRect_, ev) == ui::List::Activated) launch(list_.selected);
+        if (ev.is(key::Enter)) {
+            launch(sel_);
+            return;
+        }
+        int next = sel_;
+        if (ev.is(key::Left) || ev.is(',') || ev.is('h')) next--;
+        else if (ev.is(key::Right) || ev.is('/') || ev.is('l') || ev.is(key::Tab)) next++;
+        else if (ui::isUp(ev)) next -= kCols;
+        else if (ui::isDown(ev)) next += kCols;
+        else if (ev.is(key::Home)) next = 0;
+        else if (ev.is(key::End)) next = n - 1;
+        else return;
+        if (ev.is(key::Tab)) next = (next + n) % n;  // Tab cycles
+        // moving down from the last full row lands on the last app
+        if (next >= n && sel_ / kCols < (n - 1) / kCols) next = n - 1;
+        if (next < 0 || next >= n || next == sel_) return;
+        const int old = sel_, oldTop = topRow_;
+        sel_ = next;
+        scrollToSelection();
+        if (topRow_ != oldTop) {
+            drawAll();
+        } else {
+            Gfx& g = gfx();
+            g.startWrite();
+            drawTile(g, old);
+            drawTile(g, sel_);
+            g.endWrite();
+            drawFooter();
+        }
     }
 
 private:
-    void rebuild() {
-        list_.items.clear();
-        list_.emptyText = "No apps installed";
-        for (auto& s : slots()) {
-            ui::ListItem it;
-            it.label = s.info.name;
-            it.detail = s.inst ? "running" : (s.info.description ? s.info.description : "");
-            it.color = s.info.color;
-            list_.items.push_back(it);
-        }
-        list_.clampSelection();
+    static constexpr int kCols = 3, kRows = 2;
+    static constexpr int kFooterH = 18, kIcon = 56;
+
+    void scrollToSelection() {
+        const int row = sel_ / kCols;
+        if (row < topRow_) topRow_ = row;
+        if (row >= topRow_ + kRows) topRow_ = row - kRows + 1;
     }
-    ui::List list_;
-    Rect listRect_{0, 0, 0, 0};
+
+    Rect tileRect(int index) const {
+        Rect c = content();
+        const int tw = c.w / kCols, th = (c.h - kFooterH) / kRows;
+        return {c.x + (index % kCols) * tw, c.y + (index / kCols - topRow_) * th, tw, th};
+    }
+
+    void drawTile(Gfx& g, int index) {
+        const int row = index / kCols - topRow_;
+        if (index < 0 || index >= (int)slots().size() || row < 0 || row >= kRows) return;
+        const Slot& s = slots()[index];
+        const Rect t = tileRect(index);
+        const bool sel = index == sel_;
+        const uint32_t bg = sel ? theme::select : theme::bg;
+        g.fillRect(t.x, t.y, t.w, t.h, theme::bg);
+        if (sel) {
+            g.fillRoundRect(t.x + 4, t.y + 4, t.w - 8, t.h - 8, 8, bg);
+            g.drawRoundRect(t.x + 4, t.y + 4, t.w - 8, t.h - 8, 8, theme::accent);
+        }
+        const int ix = t.x + (t.w - kIcon) / 2, iy = t.y + 14;
+        if (s.info.icon) s.info.icon(g, ix, iy, kIcon, s.info.color, bg);
+        else icons::letter(g, ix, iy, kIcon, s.info.color, bg, s.info.name[0]);
+        g.setFont(theme::fontUi());
+        if (g.textWidth(s.info.name) > t.w - 10) g.setFont(theme::fontSmall());  // long names
+        g.setTextDatum(textdatum_t::top_left);
+        g.setTextColor(sel ? theme::text : theme::dim);
+        const int tw = std::min<int>(g.textWidth(s.info.name), t.w - 10);
+        ui::drawClipped(g, s.info.name, t.x + (t.w - tw) / 2, iy + kIcon + 8, t.w - 10);
+        if (s.inst) g.fillCircle(t.x + t.w - 16, t.y + 16, 4, theme::ok);  // running
+    }
+
+    void drawFooter() {
+        Gfx& g = gfx();
+        std::string hint;
+        if (!slots().empty()) {
+            const Slot& s = slots()[sel_];
+            hint = std::string(s.info.description ? s.info.description : s.info.name) + "   -   Enter: open";
+            if (s.inst) hint += "   x: close";
+        }
+        ui::footer(g, content(), hint.c_str());
+        // more rows above / below
+        Rect c = content();
+        const int rows = ((int)slots().size() + kCols - 1) / kCols;
+        const int ax = c.x + c.w - 12, ay = c.y + c.h - kFooterH / 2;
+        if (topRow_ > 0) g.fillTriangle(ax - 4, ay - 1, ax + 4, ay - 1, ax, ay - 6, theme::dim);
+        if (topRow_ + kRows < rows) g.fillTriangle(ax - 4, ay + 1, ax + 4, ay + 1, ax, ay + 6, theme::dim);
+    }
+
+    void drawAll() {
+        Gfx& g = gfx();
+        Rect c = content();
+        g.startWrite();
+        g.fillRect(c.x, c.y, c.w, c.h - kFooterH, theme::bg);
+        if (slots().empty()) {
+            g.setFont(theme::fontUi());
+            g.setTextColor(theme::dim);
+            g.setTextDatum(textdatum_t::top_left);
+            g.drawString("No apps installed", c.x + 10, c.y + 10);
+        }
+        for (int i = topRow_ * kCols; i < (topRow_ + kRows) * kCols; i++) drawTile(g, i);
+        g.endWrite();
+        drawFooter();
+    }
+
+    int sel_ = 0, topRow_ = 0;
 };
 Launcher launcher;
 
@@ -265,7 +362,11 @@ void services() {
 AppRegistrar::AppRegistrar(const AppInfo& info) {
     Slot s;
     s.info = info;
-    slots().push_back(s);
+    // keep the home screen order (registration order itself is arbitrary)
+    auto& v = slots();
+    auto pos = v.begin();
+    while (pos != v.end() && pos->info.order <= info.order) ++pos;
+    v.insert(pos, s);
 }
 
 #ifdef SCREENSHOT_DEBUG

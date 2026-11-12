@@ -30,7 +30,8 @@ void TermView::saveFont(Font f) { storage::putInt("term_size", (int)f); }
 void TermView::setFont(Font f) {
     font_ = f;
     switch (f) {
-        case Small: cw_ = 4; ch_ = 6; glyphDy_ = 0; glyphs_ = &fonts::TomThumb; break;
+        // TomThumb is a GFX font: it is drawn from its baseline, not its top edge
+        case Small: cw_ = 4; ch_ = 6; glyphDy_ = 5; glyphs_ = &fonts::TomThumb; break;
         case Normal: cw_ = 6; ch_ = 8; glyphDy_ = 0; glyphs_ = &fonts::Font0; break;
         case Medium: cw_ = 8; ch_ = 10; glyphDy_ = 1; glyphs_ = &fonts::Font8x8C64; break;
         default: cw_ = 8; ch_ = 16; glyphDy_ = 0; glyphs_ = &fonts::AsciiFont8x16; break;

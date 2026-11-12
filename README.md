@@ -45,7 +45,7 @@ to enter download mode.
 
 | Keys | Action |
 |------|--------|
-| `opt` + `` ` ``, or the **G0** button | Back to the launcher (the app keeps running) |
+| `opt` + `` ` ``, or the **G0** button | Back to the home screen (the app keeps running) |
 | `fn` + `` ` `` | Esc |
 | `fn` + `;` `.` `,` `/` | Up / Down / Left / Right |
 | `fn` + `1`…`0` | F1…F10 |
@@ -55,7 +55,9 @@ to enter download mode.
 | `ctrl`, `alt` + key | As on a PC keyboard (alt sends Esc-prefix in the terminal) |
 | `opt` + `r` | Reset and redraw the external display (if it ever shows garbage or stays white) |
 
-In menus `;` and `.` (or `k` / `j`) move the selection without holding `fn`.
+On the home screen the arrows (or `;` `.` `,` `/`, or `h` `j` `k` `l`) move between app
+icons, Enter opens one, and `x` closes a running app (marked with a green dot). In menus
+`;` and `.` (or `k` / `j`) move the selection without holding `fn`.
 
 SSH terminal:
 
@@ -191,8 +193,9 @@ class NotesApp : public os::App {
     void onResume() override { /* paint into os::content() using os::gfx() */ }
     void onKey(const key::Event& ev) override { /* ... */ }
 };
-OS_REGISTER_APP(NotesApp, "Notes", "Vim-style notes", 0xF0B040);
+// name, description, colour, icon (src/os/icons.h, or nullptr for a letter tile), position
+OS_REGISTER_APP(NotesApp, "Notes", "Markdown notes", theme::dracula::foreground, icons::note, 20);
 ```
 
-It appears in the launcher automatically. `ui::List`, `ui::prompt`, `ui::confirm` and
-`os::TermView` are available as building blocks.
+It appears on the home screen automatically, ordered by the last number. `ui::List`,
+`ui::prompt`, `ui::confirm` and `os::TermView` are available as building blocks.

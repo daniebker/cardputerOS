@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../../os/kernel.h"
+#include "../../os/icons.h"
 #include "../../os/storage.h"
 #include "../../os/theme.h"
 #include "../../os/ui.h"
@@ -321,6 +322,6 @@ private:
     std::string status_;
 };
 
-OS_REGISTER_APP(RogueApp, "Ember Crown", "Roguelike", theme::dracula::orange);
+OS_REGISTER_APP(RogueApp, "Ember Crown", "Roguelike dungeon crawl", theme::dracula::orange, icons::crown, 40);
 
 }  // namespace

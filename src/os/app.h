@@ -41,15 +41,19 @@ private:
 struct AppInfo {
     const char* name;
     const char* description;
-    uint32_t color;  // 0xRRGGBB, launcher icon colour
+    uint32_t color;  // 0xRRGGBB, home screen icon colour
     App* (*create)();
+    // Home screen icon (see os/icons.h); nullptr = the first letter of the name.
+    void (*icon)(Gfx& g, int x, int y, int size, uint32_t fg, uint32_t bg);
+    int order;  // position on the home screen, lowest first
 };
 
 struct AppRegistrar {
     explicit AppRegistrar(const AppInfo& info);
 };
 
-#define OS_REGISTER_APP(Class, name, description, color) \
-    static os::AppRegistrar s_registrar_##Class({name, description, color, []() -> os::App* { return new Class(); }})
+#define OS_REGISTER_APP(Class, name, description, color, icon, order) \
+    static os::AppRegistrar s_registrar_##Class( \
+        {name, description, color, []() -> os::App* { return new Class(); }, icon, order})
 
 }  // namespace os

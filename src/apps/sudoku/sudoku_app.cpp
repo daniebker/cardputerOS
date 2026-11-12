@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../../os/kernel.h"
+#include "../../os/icons.h"
 #include "../../os/storage.h"
 #include "../../os/theme.h"
 #include "../../os/ui.h"
@@ -497,6 +498,6 @@ private:
     std::string status_;
 };
 
-OS_REGISTER_APP(SudokuApp, "Sudoku", "Puzzle game", theme::dracula::pink);
+OS_REGISTER_APP(SudokuApp, "Sudoku", "Puzzle game", theme::dracula::pink, icons::sudoku, 30);
 
 }  // namespace

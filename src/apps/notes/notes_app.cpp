@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../../os/kernel.h"
+#include "../../os/icons.h"
 #include "../../os/net.h"
 #include "../../os/storage.h"
 #include "../../os/theme.h"
@@ -527,6 +528,6 @@ private:
     std::vector<uint32_t> hashes_;
 };
 
-OS_REGISTER_APP(NotesApp, "Notes", "Markdown, WebDAV sync", theme::dracula::yellow);
+OS_REGISTER_APP(NotesApp, "Notes", "Markdown notes, WebDAV sync", theme::dracula::foreground, icons::note, 20);
 
 }  // namespace
