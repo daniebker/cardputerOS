@@ -1,0 +1,55 @@
+// App framework. To add an app: create a .cpp in src/apps, derive from os::App
+// and register it with OS_REGISTER_APP. It then shows up in the launcher.
+#pragma once
+#include <M5GFX.h>
+
+#include "key.h"
+
+namespace os {
+
+// Base drawing class: the external display, or an off-screen canvas in debug builds.
+using Gfx = lgfx::LovyanGFX;
+
+struct Rect {
+    int x, y, w, h;
+};
+
+class App {
+public:
+    virtual ~App() {}
+    // Called once after the app object is created.
+    virtual void onStart() {}
+    // The app became the foreground app: the content area was cleared, repaint everything.
+    virtual void onResume() {}
+    // The app is going to the background (it keeps running, see onBackgroundTick).
+    virtual void onPause() {}
+    virtual void onKey(const key::Event&) {}
+    // Called continuously while in the foreground / background. Must not block.
+    virtual void onTick() {}
+    virtual void onBackgroundTick() {}
+    // Optional short text shown next to the app name in the status bar.
+    virtual const char* statusText() { return nullptr; }
+
+    // Ask the OS to close this app.
+    void finish() { finished_ = true; }
+    bool finished() const { return finished_; }
+
+private:
+    bool finished_ = false;
+};
+
+struct AppInfo {
+    const char* name;
+    const char* description;
+    uint32_t color;  // 0xRRGGBB, launcher icon colour
+    App* (*create)();
+};
+
+struct AppRegistrar {
+    explicit AppRegistrar(const AppInfo& info);
+};
+
+#define OS_REGISTER_APP(Class, name, description, color) \
+    static os::AppRegistrar s_registrar_##Class({name, description, color, []() -> os::App* { return new Class(); }})
+
+}  // namespace os
