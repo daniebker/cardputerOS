@@ -1,5 +1,6 @@
 // App framework. To add an app: create a .cpp in src/apps, derive from os::App
-// and register it with OS_REGISTER_APP. It then shows up in the launcher.
+// and register it with OS_REGISTER_APP (or OS_REGISTER_APP_IN to put it in a
+// home screen folder). It then shows up in the launcher.
 #pragma once
 #include <M5GFX.h>
 
@@ -51,6 +52,8 @@ struct AppInfo {
     // Home screen icon (see os/icons.h); nullptr = the first letter of the name.
     void (*icon)(Gfx& g, int x, int y, int size, uint32_t fg, uint32_t bg);
     int order;  // position on the home screen, lowest first
+    // Home screen folder the app is shown in (e.g. "Games"); nullptr = the home screen itself.
+    const char* folder;
 };
 
 struct AppRegistrar {
@@ -59,6 +62,12 @@ struct AppRegistrar {
 
 #define OS_REGISTER_APP(Class, name, description, color, icon, order) \
     static os::AppRegistrar s_registrar_##Class( \
-        {name, description, color, []() -> os::App* { return new Class(); }, icon, order})
+        {name, description, color, []() -> os::App* { return new Class(); }, icon, order, nullptr})
+
+// Same, but the app is placed in a folder on the home screen. Apps with the same
+// folder name are grouped; the folder sits where its first app would be.
+#define OS_REGISTER_APP_IN(Class, folder, name, description, color, icon, order) \
+    static os::AppRegistrar s_registrar_##Class( \
+        {name, description, color, []() -> os::App* { return new Class(); }, icon, order, folder})
 
 }  // namespace os

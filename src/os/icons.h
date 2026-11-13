@@ -15,6 +15,9 @@ void sudoku(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void crown(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void mesh(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void journal(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
+void tiles(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
+// A folder; `colors` (up to 4) are drawn as small tiles inside it, one per app it holds.
+void folder(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg, const uint32_t* colors, int count);
 // Fallback: a rounded square with the first letter of the name.
 void letter(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg, char c);
 

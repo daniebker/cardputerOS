@@ -4,6 +4,15 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-13
+
+### Added
+
+- **Merge**, a sliding tile puzzle: merge equal number tiles on a 4x4 board
+  and aim for 2048. Undo of the last move, best score kept.
+- Home screen folders. Sudoku, Ember Crown and Merge are now in a **Games**
+  folder; Esc or Backspace goes back to the home screen.
+
 ## [0.4.0] - 2026-11-13
 
 ### Added

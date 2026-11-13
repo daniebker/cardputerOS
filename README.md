@@ -56,7 +56,9 @@ to enter download mode.
 | `opt` + `r` | Reset and redraw the external display (if it ever shows garbage or stays white) |
 
 On the home screen the arrows (or `;` `.` `,` `/`, or `h` `j` `k` `l`) move between app
-icons, Enter opens one, and `x` closes a running app (marked with a green dot). In menus
+icons, Enter opens one, and `x` closes a running app (marked with a green dot). The games
+are grouped in the **Games** folder: Enter opens it, and Esc, Backspace or `opt`+`` ` ``
+goes back (leaving a game returns to the folder). In menus
 `;` and `.` (or `k` / `j`) move the selection without holding `fn`.
 
 SSH terminal:
@@ -206,7 +208,7 @@ something fails to connect.
 
 ## Sudoku
 
-Launcher → **Sudoku**. Every puzzle is generated on the device and has exactly one
+Launcher → **Games** → **Sudoku**. Every puzzle is generated on the device and has exactly one
 solution: Easy (about 40 given digits), Medium (about 32) or Hard (as few as possible,
 usually 26–30). The game in progress is saved, so it survives closing the app and
 rebooting; undo history only lasts for the current session.
@@ -231,7 +233,7 @@ hints) are kept per difficulty.
 
 ## Ember Crown (roguelike)
 
-Launcher → **Ember Crown**. Explore eight randomly generated dungeon levels, fight what
+Launcher → **Games** → **Ember Crown**. Explore eight randomly generated dungeon levels, fight what
 lives there, and take the Ember Crown (`*`) from its guardian on depth 8. Death is
 permanent; the run in progress is saved when you leave the app (and every 50 turns).
 
@@ -250,6 +252,22 @@ permanent; the run in progress is saved when you leave the app (and every 50 tur
 over time, but resting is never completely safe: now and then something comes looking
 for you.
 
+## Merge
+
+Launcher → **Games** → **Merge**. A sliding tile puzzle on a 4x4 board: each move
+slides every tile as far as it goes in one direction, and two equal tiles that meet
+become one tile of twice the value (the merged values are added to the score). After
+every move a new 2 (sometimes a 4) appears. Reach a 2048 tile, then keep going if you
+like; the game ends when no move is possible.
+
+| Keys | Action |
+|------|--------|
+| arrows, `;` `.` `,` `/`, `h` `j` `k` `l`, `w` `a` `s` `d` | Slide up / down / left / right |
+| `u` or Backspace | Undo the last move |
+| `n` | New game |
+
+The game in progress and the best score are kept across restarts.
+
 ## Layout
 
 ```
@@ -265,7 +283,8 @@ lib/sudoku               Sudoku generator and solver (portable, unit tested)
 lib/journal              journal file format and merging (portable, unit tested)
 lib/mesh                 Meshtastic client protocol and message store (portable, unit tested)
 lib/rogue                roguelike game rules (portable, unit tested with a bot player)
-src/apps                 apps: settings, ssh, notes, journal, mesh, sudoku, rogue
+lib/merge                sliding tile puzzle rules (portable, unit tested)
+src/apps                 apps: settings, ssh, notes, journal, mesh, sudoku, rogue, merge
 test/                    host-side unit tests
 ```
 
@@ -282,5 +301,7 @@ class NotesApp : public os::App {
 OS_REGISTER_APP(NotesApp, "Notes", "Markdown notes", theme::dracula::foreground, icons::note, 20);
 ```
 
-It appears on the home screen automatically, ordered by the last number. `ui::List`,
+It appears on the home screen automatically, ordered by the last number. To put it in a
+home screen folder, use `OS_REGISTER_APP_IN(Class, "Games", name, ...)` with the same
+arguments after the folder name; the folder is created as soon as one app uses it. `ui::List`,
 `ui::prompt`, `ui::confirm` and `os::TermView` are available as building blocks.

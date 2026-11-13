@@ -322,6 +322,6 @@ private:
     std::string status_;
 };
 
-OS_REGISTER_APP(RogueApp, "Ember Crown", "Roguelike dungeon crawl", theme::dracula::orange, icons::crown, 40);
+OS_REGISTER_APP_IN(RogueApp, "Games", "Ember Crown", "Roguelike dungeon crawl", theme::dracula::orange, icons::crown, 40);
 
 }  // namespace

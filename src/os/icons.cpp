@@ -116,6 +116,34 @@ void journal(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     g.fillTriangle(rx, y + s / 3, rx + 6, y + s / 3, rx + 3, y + s / 3 - 4, fg);
 }
 
+void tiles(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    // a 2x2 board of number tiles
+    const int gap = 4, t = (s - 3 * gap) / 2;
+    g.fillRoundRect(x, y, s, s, 7, dr::darkest);
+    static const uint32_t bgs[4] = {dr::currentLine, dr::green, dr::orange, 0};
+    static const char* const nums[4] = {"2", "16", "64", "2K"};
+    g.setFont(&fonts::FreeSansBold9pt7b);
+    g.setTextDatum(textdatum_t::middle_center);
+    for (int i = 0; i < 4; i++) {
+        const int tx = x + gap + (i % 2) * (t + gap), ty = y + gap + (i / 2) * (t + gap);
+        g.fillRoundRect(tx, ty, t, t, 4, bgs[i] ? bgs[i] : fg);
+        g.setTextColor(i == 0 ? dr::foreground : dr::darkest);
+        g.drawString(nums[i], tx + t / 2, ty + t / 2 + 1);
+    }
+}
+
+void folder(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t, const uint32_t* colors, int count) {
+    const int top = y + s / 6, tab = s / 3;
+    g.fillRoundRect(x, top, tab + 6, s / 4, 4, fg);  // tab
+    g.fillRoundRect(x, top + 6, s, s - s / 6 - 6, 6, fg);
+    // the apps inside: small tiles in their colours
+    const int pad = 7, gap = 4, n = count < 4 ? count : 4;
+    const int area = s - 2 * pad, t = (area - gap) / 2;
+    const int ay = top + 6 + (s - s / 6 - 6 - (2 * t + gap)) / 2;
+    for (int i = 0; i < n; i++)
+        g.fillRoundRect(x + pad + (i % 2) * (t + gap), ay + (i / 2) * (t + gap), t, t, 4, colors[i]);
+}
+
 void letter(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t, char c) {
     g.fillRoundRect(x, y, s, s, 8, fg);
     g.setFont(&fonts::FreeSansBold18pt7b);

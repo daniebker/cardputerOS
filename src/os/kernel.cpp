@@ -41,13 +41,12 @@ void launch(int index);
 void closeApp(int index);
 
 // ------------------------------------------------------------ launcher
-// Home screen: a grid of app icons.
+// Home screen: a grid of app icons. Apps registered with a folder are grouped
+// behind one folder icon; Enter opens it, Esc / Backspace goes back.
 class Launcher {
 public:
     void resume() {
-        const int n = (int)slots().size();
-        if (sel_ >= n) sel_ = n - 1;
-        if (sel_ < 0) sel_ = 0;
+        build();
         Gfx& g = gfx();
         g.startWrite();
         Rect c = content();
@@ -57,16 +56,38 @@ public:
         drawAll();
     }
 
+    // The folder shown ("" = the home screen itself).
+    const std::string& folder() const { return folder_; }
+
+    // Back to the top level (pressing "home" while already on the home screen).
+    void toTop() {
+        if (folder_.empty()) return;
+        leaveFolder();
+    }
+
     void onKey(const key::Event& ev) {
-        const int n = (int)slots().size();
+        const int n = (int)entries_.size();
+        if (!folder_.empty() && (ev.is(key::Esc) || ev.is(key::Backspace) || ev.is('`'))) {
+            leaveFolder();
+            return;
+        }
         if (n == 0) return;
-        if (ev.is('x') && slots()[sel_].inst) {
-            closeApp(sel_);
+        const Entry& e = entries_[sel_];
+        if (ev.is('x') && e.slot >= 0 && slots()[e.slot].inst) {
+            closeApp(e.slot);
             resume();
             return;
         }
         if (ev.is(key::Enter)) {
-            launch(sel_);
+            if (e.slot >= 0) {
+                launch(e.slot);
+            } else {
+                topSel_ = sel_;
+                topRow0_ = topRow_;
+                folder_ = e.folder;
+                sel_ = topRow_ = 0;
+                resume();
+            }
             return;
         }
         int next = sel_;
@@ -100,6 +121,48 @@ private:
     static constexpr int kCols = 3, kRows = 2;
     static constexpr int kFooterH = 18, kIcon = 56;
 
+    struct Entry {
+        int slot;            // index into slots(), or -1 for a folder
+        std::string folder;  // folder name (slot == -1)
+    };
+
+    // The entries of the current folder, in home screen order.
+    void build() {
+        entries_.clear();
+        for (int i = 0; i < (int)slots().size(); i++) {
+            const char* f = slots()[i].info.folder;
+            if (folder_.empty()) {
+                if (!f) {
+                    entries_.push_back({i, std::string()});
+                } else {
+                    bool seen = false;
+                    for (auto& e : entries_) seen = seen || (e.slot < 0 && e.folder == f);
+                    if (!seen) entries_.push_back({-1, f});
+                }
+            } else if (f && folder_ == f) {
+                entries_.push_back({i, std::string()});
+            }
+        }
+        const int n = (int)entries_.size();
+        if (sel_ >= n) sel_ = n - 1;
+        if (sel_ < 0) sel_ = 0;
+    }
+
+    void leaveFolder() {
+        folder_.clear();
+        sel_ = topSel_;
+        topRow_ = topRow0_;
+        resume();
+    }
+
+    // Apps in folder `name`.
+    std::vector<int> members(const std::string& name) const {
+        std::vector<int> out;
+        for (int i = 0; i < (int)slots().size(); i++)
+            if (slots()[i].info.folder && name == slots()[i].info.folder) out.push_back(i);
+        return out;
+    }
+
     void scrollToSelection() {
         const int row = sel_ / kCols;
         if (row < topRow_) topRow_ = row;
@@ -114,8 +177,8 @@ private:
 
     void drawTile(Gfx& g, int index) {
         const int row = index / kCols - topRow_;
-        if (index < 0 || index >= (int)slots().size() || row < 0 || row >= kRows) return;
-        const Slot& s = slots()[index];
+        if (index < 0 || index >= (int)entries_.size() || row < 0 || row >= kRows) return;
+        const Entry& e = entries_[index];
         const Rect t = tileRect(index);
         const bool sel = index == sel_;
         const uint32_t bg = sel ? theme::select : theme::bg;
@@ -125,29 +188,54 @@ private:
             g.drawRoundRect(t.x + 4, t.y + 4, t.w - 8, t.h - 8, 8, theme::accent);
         }
         const int ix = t.x + (t.w - kIcon) / 2, iy = t.y + 14;
-        if (s.info.icon) s.info.icon(g, ix, iy, kIcon, s.info.color, bg);
-        else icons::letter(g, ix, iy, kIcon, s.info.color, bg, s.info.name[0]);
+        const char* name;
+        bool running = false;
+        if (e.slot >= 0) {
+            const Slot& s = slots()[e.slot];
+            name = s.info.name;
+            running = s.inst != nullptr;
+            if (s.info.icon) s.info.icon(g, ix, iy, kIcon, s.info.color, bg);
+            else icons::letter(g, ix, iy, kIcon, s.info.color, bg, s.info.name[0]);
+        } else {
+            name = e.folder.c_str();
+            uint32_t colors[4];
+            int count = 0;
+            for (int m : members(e.folder)) {
+                if (count < 4) colors[count++] = slots()[m].info.color;
+                running = running || slots()[m].inst;
+            }
+            icons::folder(g, ix, iy, kIcon, theme::dracula::comment, bg, colors, count);
+        }
         g.setFont(theme::fontUi());
-        if (g.textWidth(s.info.name) > t.w - 10) g.setFont(theme::fontSmall());  // long names
+        if (g.textWidth(name) > t.w - 10) g.setFont(theme::fontSmall());  // long names
         g.setTextDatum(textdatum_t::top_left);
         g.setTextColor(sel ? theme::text : theme::dim);
-        const int tw = std::min<int>(g.textWidth(s.info.name), t.w - 10);
-        ui::drawClipped(g, s.info.name, t.x + (t.w - tw) / 2, iy + kIcon + 8, t.w - 10);
-        if (s.inst) g.fillCircle(t.x + t.w - 16, t.y + 16, 4, theme::ok);  // running
+        const int tw = std::min<int>(g.textWidth(name), t.w - 10);
+        ui::drawClipped(g, name, t.x + (t.w - tw) / 2, iy + kIcon + 8, t.w - 10);
+        if (running) g.fillCircle(t.x + t.w - 16, t.y + 16, 4, theme::ok);  // running
     }
 
     void drawFooter() {
         Gfx& g = gfx();
         std::string hint;
-        if (!slots().empty()) {
-            const Slot& s = slots()[sel_];
-            hint = std::string(s.info.description ? s.info.description : s.info.name) + "   -   Enter: open";
-            if (s.inst) hint += "   x: close";
+        if (!folder_.empty()) hint = folder_ + " /  ";
+        if (!entries_.empty()) {
+            const Entry& e = entries_[sel_];
+            if (e.slot >= 0) {
+                const Slot& s = slots()[e.slot];
+                hint += std::string(s.info.description ? s.info.description : s.info.name) + "   -   Enter: open";
+                if (s.inst) hint += "   x: close";
+            } else {
+                std::string names;
+                for (int m : members(e.folder)) names += (names.empty() ? "" : ", ") + std::string(slots()[m].info.name);
+                hint += names + "   -   Enter: open";
+            }
         }
+        if (!folder_.empty()) hint += "   Esc: back";
         ui::footer(g, content(), hint.c_str());
         // more rows above / below
         Rect c = content();
-        const int rows = ((int)slots().size() + kCols - 1) / kCols;
+        const int rows = ((int)entries_.size() + kCols - 1) / kCols;
         const int ax = c.x + c.w - 12, ay = c.y + c.h - kFooterH / 2;
         if (topRow_ > 0) g.fillTriangle(ax - 4, ay - 1, ax + 4, ay - 1, ax, ay - 6, theme::dim);
         if (topRow_ + kRows < rows) g.fillTriangle(ax - 4, ay + 1, ax + 4, ay + 1, ax, ay + 6, theme::dim);
@@ -158,7 +246,7 @@ private:
         Rect c = content();
         g.startWrite();
         g.fillRect(c.x, c.y, c.w, c.h - kFooterH, theme::bg);
-        if (slots().empty()) {
+        if (entries_.empty()) {
             g.setFont(theme::fontUi());
             g.setTextColor(theme::dim);
             g.setTextDatum(textdatum_t::top_left);
@@ -169,7 +257,10 @@ private:
         drawFooter();
     }
 
+    std::vector<Entry> entries_;
+    std::string folder_;
     int sel_ = 0, topRow_ = 0;
+    int topSel_ = 0, topRow0_ = 0;  // position on the home screen while a folder is open
 };
 Launcher launcher;
 
@@ -187,7 +278,10 @@ void showForeground() {
 
 void goHome() {
     homePending = false;
-    if (foreground < 0) return;
+    if (foreground < 0) {
+        launcher.toTop();  // "home" on the home screen leaves an open folder
+        return;
+    }
     slots()[foreground].inst->onPause();
     foreground = -1;
     showForeground();
@@ -235,7 +329,7 @@ bool statusValid = false;
 
 Status currentStatus() {
     Status st;
-    st.app = foreground < 0 ? "Home" : slots()[foreground].info.name;
+    st.app = foreground < 0 ? (launcher.folder().empty() ? "Home" : launcher.folder()) : slots()[foreground].info.name;
     if (foreground >= 0) {
         const char* t = slots()[foreground].inst->statusText();
         if (t) st.appStatus = t;

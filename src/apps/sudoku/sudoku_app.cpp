@@ -498,6 +498,6 @@ private:
     std::string status_;
 };
 
-OS_REGISTER_APP(SudokuApp, "Sudoku", "Puzzle game", theme::dracula::pink, icons::sudoku, 30);
+OS_REGISTER_APP_IN(SudokuApp, "Games", "Sudoku", "Puzzle game", theme::dracula::pink, icons::sudoku, 30);
 
 }  // namespace
