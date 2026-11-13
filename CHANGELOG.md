@@ -4,6 +4,25 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-13
+
+### Added
+
+- **Journal**: quick timestamped entries, one Markdown file per day, synced
+  with a WebDAV folder. Days changed on the device and elsewhere are merged
+  entry by entry.
+- **Mesh**, a Meshtastic text messenger: connects to a Meshtastic node over
+  Bluetooth LE (scan, PIN pairing, automatic reconnect), shows channels, direct
+  messages and the node list, sends and receives text with delivery marks, and
+  keeps recent messages across restarts. New messages are announced on the
+  built-in screen while the app is in the background.
+- Battery saving (Settings): on battery the screen dims and the device goes
+  into light sleep after configurable times without a key press. Any key or
+  the G0 button wakes it; apps save first and Wi-Fi reconnects afterwards. The
+  device stays awake while an SSH connection is open. The external display's
+  backlight can be dimmed and switched off too if its LED pin is wired to a
+  GPIO (`EXT_TFT_BL`).
+
 ## [0.3.0] - 2026-11-12
 
 ### Changed

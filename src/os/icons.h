@@ -13,6 +13,8 @@ void note(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void gear(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void sudoku(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 void crown(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
+void mesh(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
+void journal(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg);
 // Fallback: a rounded square with the first letter of the name.
 void letter(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t bg, char c);
 

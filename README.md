@@ -68,6 +68,26 @@ SSH terminal:
 | `opt` + `x` | Disconnect |
 | `opt` + `k` | Install this device's SSH key on the host |
 
+## Battery saving
+
+**Settings → Dim screen on battery** and **Sleep on battery** set how long the device
+waits without a key press (each can be switched off). They only apply on battery, i.e.
+when no computer is connected over USB; a charger without data lines counts as battery.
+
+- **Dim:** the built-in screen dims. Pressing any key restores it, and the key works as
+  usual.
+- **Sleep:** apps save their work, Wi-Fi switches off, both screens go black and the
+  processor sleeps. Any key (or the G0 button) wakes it within a moment; that key press
+  is not passed on to the app. Wi-Fi reconnects by itself. The device does not sleep
+  while an SSH connection is open, because sleeping would drop it.
+
+The external display's backlight is the largest power draw, and with its LED pin wired
+to 5VOUT the firmware cannot dim it or switch it off: in sleep the screen is black but
+still lit. To let the firmware control it, connect the display's LED pin to a free GPIO
+instead (for example G13) and set `EXT_TFT_BL` in `include/board_config.h` to that pin.
+Only do this if the display board has a backlight transistor (most 2.8" ILI9341 boards
+do); without one the backlight draws more current than a GPIO should supply.
+
 ## SSH
 
 1. Launcher → **Settings** → **Wi-Fi**, pick a network.
@@ -120,6 +140,69 @@ HTTPS certificates are not checked against a CA list; like SSH host keys, the se
 certificate fingerprint is shown on first use and you are warned if it later changes
 (which also happens on every certificate renewal). The password is stored unencrypted
 in flash.
+
+## Journal
+
+Launcher → **Journal**. Type a line and press Enter: it is added to today's file with
+the current time. Each day is one Markdown file, `2026-11-12.md`:
+
+```markdown
+# 2026-11-12
+
+- **09:15** First entry of the day
+- **14:32** Another entry
+```
+
+| Keys | Action |
+|------|--------|
+| type, Enter | Add an entry to today (also when another day is shown) |
+| Left / Right | Previous / next day |
+| Up / Down, `fn`+`[` `]` | Scroll |
+| `opt` + `d` | Pick a day from a list |
+| `opt` + `u` | Remove the last entry of the day shown |
+| `opt` + `s` | Sync now |
+| `opt` + `a` | Set the sync folder |
+
+Entries need the clock, which is set from the network: after power-on the device has to
+reach Wi-Fi once before entries can be added.
+
+**WebDAV sync.** `opt`+`a` asks for a WebDAV folder, user name and password (if Notes
+sync is set up, the same server with a `Journal` folder is suggested). The folder is
+created if it does not exist. Sync runs when the app is opened, when you leave it with
+unsynced entries, and on `opt`+`s`. If a day was changed both on the device and
+elsewhere, the entries of both versions are merged in time order, so nothing is lost;
+text added by other apps is kept. Other files in the folder are ignored. Certificates
+and the stored password work as described for Notes.
+
+## Mesh (Meshtastic)
+
+Launcher → **Mesh**. A text messenger for [Meshtastic](https://meshtastic.org): the
+Cardputer connects over Bluetooth LE to a Meshtastic node (any board running the
+Meshtastic firmware), exactly as the phone apps do, and the node does the LoRa part. No
+extra pins or LoRa hardware on the Cardputer are needed.
+
+1. Make sure the node has Bluetooth enabled and no phone is connected to it (a node
+   accepts one Bluetooth client at a time).
+2. In the app press `c` → **Scan for Meshtastic nodes** and pick yours.
+3. When asked, enter the pairing PIN shown on the node's screen (or `123456` for nodes
+   set to the fixed default PIN). Pairing is remembered; the app reconnects by itself
+   afterwards, also after the node was out of range.
+
+| Screen | Keys |
+|--------|------|
+| Conversations | Enter: open · `n`: node list · `c`: connect / disconnect / scan |
+| Chat | type and press Enter to send · arrows or `fn`+`[` `]`: scroll · Esc: back |
+| Nodes | Enter: start a direct message · Backspace: back |
+
+Every channel of the node gets a conversation, plus one per node you exchange direct
+messages with. After your own messages `~` means sending, `+` delivered (acknowledged)
+and `!` failed. The last 60 messages of each conversation are kept across restarts.
+While the app is in the background, new messages are announced on the built-in screen.
+
+The app keeps the device awake while it is open (Bluetooth does not survive sleep);
+close it from the home screen with `x` to let the device sleep again. Bluetooth, Wi-Fi
+and an SSH session together use most of the memory, so close apps you are not using if
+something fails to connect.
 
 ## Sudoku
 
@@ -179,8 +262,10 @@ src/os                   kernel (launcher, status bar, app lifecycle), UI toolki
 lib/vim                  vi-style editor engine (portable, unit tested on the host)
 lib/dav                  WebDAV / HTTP parsing (portable, unit tested)
 lib/sudoku               Sudoku generator and solver (portable, unit tested)
+lib/journal              journal file format and merging (portable, unit tested)
+lib/mesh                 Meshtastic client protocol and message store (portable, unit tested)
 lib/rogue                roguelike game rules (portable, unit tested with a bot player)
-src/apps                 apps: settings, ssh, notes, sudoku, rogue
+src/apps                 apps: settings, ssh, notes, journal, mesh, sudoku, rogue
 test/                    host-side unit tests
 ```
 

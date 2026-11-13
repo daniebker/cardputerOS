@@ -1,6 +1,7 @@
 #include "keyboard.h"
 
 #include <M5Cardputer.h>
+#include <driver/gpio.h>
 
 namespace hal {
 
@@ -88,7 +89,12 @@ key::Event translate(int b, uint64_t mask, bool repeat) {
 }  // namespace
 
 #ifdef SCREENSHOT_DEBUG
-static bool shotRequested = false;
+static bool shotRequested = false, sleepTestRequested = false;
+bool takeSleepTestRequest() {
+    bool r = sleepTestRequested;
+    sleepTestRequested = false;
+    return r;
+}
 bool takeScreenshotRequest() {
     bool r = shotRequested;
     shotRequested = false;
@@ -121,6 +127,9 @@ static void pollSerialKeys() {
         } else if (c == 0x1D) {
             shotRequested = true;
             continue;
+        } else if (c == 0x1A) {
+            sleepTestRequested = true;
+            continue;
         } else if (c == 0x1C) {
             ev.code = key::OsHome;
         } else if (c == 0x1B) {
@@ -141,6 +150,49 @@ static void pollSerialKeys() {
     }
 }
 #endif
+
+namespace {
+constexpr uint8_t kTcaAddr = 0x34, kRegIntStat = 0x02, kRegEventCount = 0x03, kRegEvent = 0x04;
+constexpr gpio_num_t kTcaIntPin = GPIO_NUM_11;
+
+// Reads and discards everything in the keyboard chip's event FIFO and clears its
+// interrupt flags, which lets the interrupt line go high again.
+void drainChip() {
+    for (int i = 0; i < 16; i++) {
+        const int count = M5.In_I2C.readRegister8(kTcaAddr, kRegEventCount, 400000) & 0x0F;
+        if (count == 0) break;
+        for (int k = 0; k < count; k++) M5.In_I2C.readRegister8(kTcaAddr, kRegEvent, 400000);
+    }
+    M5.In_I2C.writeRegister8(kTcaAddr, kRegIntStat, 0x0F, 400000);
+}
+}  // namespace
+
+void keyboardBeforeSleep() {
+    // wait until every key is released, then make sure nothing is pending
+    const uint32_t t0 = millis();
+    while (millis() - t0 < 1500) {
+        M5.update();
+        M5Cardputer.Keyboard.updateKeyList();
+        if (M5Cardputer.Keyboard.keyList().empty() && digitalRead(kTcaIntPin) == HIGH) break;
+        delay(10);
+    }
+    drainChip();
+}
+
+void keyboardAfterSleep() {
+    // gpio_wakeup_enable() replaced the pin's interrupt type: restore the edge interrupt
+    gpio_set_intr_type(kTcaIntPin, GPIO_INTR_ANYEDGE);
+    // let the waking key be released, discarding its events
+    const uint32_t t0 = millis();
+    do {
+        drainChip();
+        delay(20);
+    } while (millis() - t0 < 250 || (digitalRead(kTcaIntPin) == LOW && millis() - t0 < 1500));
+    M5.update();  // also clears a G0 button press
+    prevMask = 0;
+    repeatBit = -1;
+    qHead = qCount = 0;
+}
 
 void keyboardBegin() {
     prevMask = 0;

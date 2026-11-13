@@ -12,6 +12,7 @@
 #include "../hal/keyboard.h"
 #include "icons.h"
 #include "net.h"
+#include "power.h"
 #include "storage.h"
 #include "theme.h"
 #include "ui.h"
@@ -221,12 +222,12 @@ void closeApp(int index) {
 // All status lives on the Cardputer's built-in 240x135 screen; the external
 // display is left entirely to the apps.
 struct Status {
-    std::string app, appStatus, wifi, ip, battery, clock;
+    std::string app, appStatus, wifi, ip, battery, clock, notice;
     uint32_t wifiColor = 0;
     int signal = 0;  // 0..3 bars
     bool operator==(const Status& o) const {
         return app == o.app && appStatus == o.appStatus && wifi == o.wifi && ip == o.ip && battery == o.battery &&
-               clock == o.clock && wifiColor == o.wifiColor && signal == o.signal;
+               clock == o.clock && notice == o.notice && wifiColor == o.wifiColor && signal == o.signal;
     }
 };
 Status shownStatus;
@@ -251,6 +252,11 @@ Status currentStatus() {
     } else {
         st.wifi = net::started() ? "no Wi-Fi" : "Wi-Fi starting";
         st.wifiColor = theme::dim;
+    }
+    for (auto& sl : slots()) {
+        if (!sl.inst) continue;
+        const char* n = sl.inst->notice();
+        if (n && *n && st.notice.empty()) st.notice = n;
     }
     if (batteryLevel >= 0) st.battery = std::to_string(batteryLevel) + "%";
     time_t now = time(nullptr);
@@ -317,13 +323,30 @@ void drawStatus(const Status& st) {
     }
 
     // key hints
-    d.setFont(&fonts::DejaVu9);
-    d.setTextColor(theme::dim);
-    clipped(d, "opt+` home   opt+r redraw screen", 6, h - 14, w - 12);
+    // bottom line: a notice from an app if there is one, otherwise the key hints
+    if (!st.notice.empty()) {
+        d.setFont(&fonts::DejaVu12);
+        d.setTextColor(theme::warn);
+        clipped(d, st.notice, 6, h - 18, w - 12);
+    } else {
+        d.setFont(&fonts::DejaVu9);
+        d.setTextColor(theme::dim);
+        clipped(d, "opt+` home   opt+r redraw screen", 6, h - 14, w - 12);
+    }
     d.endWrite();
 }
 
 void markStage(char stage);  // defined below
+void showForeground();
+
+// Light sleep until a key is pressed (battery saving, see power.h).
+void goToSleep(unsigned timerWakeMs = 0) {
+    if (foreground >= 0) slots()[foreground].inst->onPause();  // apps save their work
+    power::sleepNow(timerWakeMs);
+    markStage('S');
+    statusValid = false;
+    showForeground();
+}
 
 // Sets the external display up again and repaints everything (opt+r).
 void reinitDisplay() {
@@ -331,8 +354,18 @@ void reinitDisplay() {
     displaySettingsChanged();
 }
 
-void services() {
+void services(bool maySleep) {
     const uint32_t now = millis();
+    if (power::tick() == power::Action::Sleep) {
+        bool keepAwake = false;
+        for (auto& sl : slots())
+            if (sl.inst && sl.inst->keepAwake()) keepAwake = true;
+        // not while a dialog is open (maySleep == false): it would be wiped by the repaint
+        if (maySleep && !keepAwake) {
+            goToSleep();
+            return;
+        }
+    }
     markStage('L');
     if (now > 5000) markStage('5');
     if (now > 30000) markStage('T');
@@ -423,8 +456,9 @@ bool modalPoll(key::Event& ev) {
         ev.code = key::Esc;
         return true;
     }
-    services();
+    services(false);
     if (hal::keyboardPoll(ev)) {
+        power::activity();
         if (ev.code == key::OsHome) {
             homePending = true;
             ev.code = key::Esc;
@@ -436,7 +470,7 @@ bool modalPoll(key::Event& ev) {
 }
 
 void idle() {
-    services();
+    services(false);
     delay(2);
 }
 
@@ -518,6 +552,7 @@ void begin() {
     storage::mountFiles();
     hal::keyboardBegin();
     markStage('D');
+    power::activity();
     // Wi-Fi starts a few seconds after boot (see services()), once the UI is up.
 
     hal::display.fillScreen(theme::bg);
@@ -525,13 +560,15 @@ void begin() {
 }
 
 void loopOnce() {
-    services();
+    services(true);
 
 #ifdef SCREENSHOT_DEBUG
     if (hal::takeScreenshotRequest()) dumpScreenshot();
+    if (hal::takeSleepTestRequest()) goToSleep(6000);
 #endif
     key::Event ev;
     while (!homePending && hal::keyboardPoll(ev)) {
+        power::activity();
         if (ev.code == key::OsHome) {
             homePending = true;
         } else if (ev.isOpt('r')) {

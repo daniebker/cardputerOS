@@ -31,6 +31,9 @@ bool isSaved(const std::string& ssid);
 bool savedPassword(const std::string& ssid, std::string& pass);
 void forget(const std::string& ssid);
 void disconnect();
+// Radio off / on again around sleep (auto-connect resumes afterwards).
+void suspend();
+void resume();
 
 void applyTimezone();  // re-read the "tz_min" setting
 

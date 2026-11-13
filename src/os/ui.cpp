@@ -4,6 +4,7 @@
 
 #include "kernel.h"
 #include "theme.h"
+#include "vterm.h"
 
 namespace ui {
 
@@ -89,6 +90,29 @@ void drawClipped(os::Gfx& g, const std::string& text, int x, int y, int maxWidth
     std::string t = text;
     while (!t.empty() && g.textWidth((t + "..").c_str()) > maxWidth) t.pop_back();
     g.drawString((t + "..").c_str(), x, y);
+}
+
+std::string displayable(const std::string& utf8) {
+    std::string out;
+    size_t i = 0;
+    while (i < utf8.size()) {
+        const uint8_t c = (uint8_t)utf8[i];
+        uint32_t cp = c;
+        int n = 1;
+        if (c >= 0xF0) { cp = c & 0x07; n = 4; }
+        else if (c >= 0xE0) { cp = c & 0x0F; n = 3; }
+        else if (c >= 0xC0) { cp = c & 0x1F; n = 2; }
+        for (int k = 1; k < n && i + k < utf8.size(); k++) cp = (cp << 6) | ((uint8_t)utf8[i + k] & 0x3F);
+        i += n;
+        if (cp < 0x20) out.push_back(' ');
+        else if (cp < 0x7F) out.push_back((char)cp);
+        else {
+            const uint8_t g = VTerm::glyphFor(cp);
+            if (g == 0) continue;  // invisible (joiners, variation selectors)
+            out.push_back(g < 0x7F ? (char)g : '?');
+        }
+    }
+    return out;
 }
 
 os::Rect footer(os::Gfx& g, const os::Rect& area, const char* hint) {

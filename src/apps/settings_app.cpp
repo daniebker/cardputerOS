@@ -8,6 +8,7 @@
 #include "../os/kernel.h"
 #include "../os/icons.h"
 #include "../os/net.h"
+#include "../os/power.h"
 #include "../os/storage.h"
 #include "../os/term_view.h"
 #include "../os/theme.h"
@@ -26,7 +27,7 @@ public:
 
 private:
     enum class Page { Main, Wifi };
-    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemAbout };
+    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemDim, ItemSleep, ItemAbout };
 
     static std::string tzText() {
         int m = storage::getInt("tz_min", 0);
@@ -45,6 +46,8 @@ private:
             main_.items.push_back({"Rotate screen 180", storage::getInt("flip", 0) ? "on" : "off", 0});
             main_.items.push_back({"Terminal font", os::TermView::fontName(os::TermView::savedFont()), 0});
             main_.items.push_back({"Time zone", tzText(), 0});
+            main_.items.push_back({"Dim screen on battery", minutesText(power::dimMinutes()), 0});
+            main_.items.push_back({"Sleep on battery", minutesText(power::sleepMinutes()), 0});
             main_.items.push_back({"About", "", 0});
             main_.draw(g, rect_);
         } else {
@@ -89,6 +92,16 @@ private:
                 }
                 break;
             }
+            case ItemDim: {
+                const int v = chooseMinutes("Dim screen after (on battery)", {0, 1, 2, 5, 10}, power::dimMinutes());
+                if (v >= 0) power::setDimMinutes(v);
+                break;
+            }
+            case ItemSleep: {
+                const int v = chooseMinutes("Sleep after (on battery)", {0, 2, 5, 10, 15, 30}, power::sleepMinutes());
+                if (v >= 0) power::setSleepMinutes(v);
+                break;
+            }
             case ItemAbout: {
                 char buf[320];
                 snprintf(buf, sizeof buf, "cardputerOS %s\nIP: %s\nMAC: %s\nFree memory: %u KB\nStorage: %s\nLast boots: %s",
@@ -100,6 +113,20 @@ private:
             }
         }
         draw();
+    }
+
+    static std::string minutesText(int m) { return m <= 0 ? "off" : "after " + std::to_string(m) + " min"; }
+
+    // Returns the chosen number of minutes (0 = off) or -1 if cancelled.
+    static int chooseMinutes(const char* title, const std::vector<int>& options, int current) {
+        std::vector<std::string> names;
+        int initial = 0;
+        for (size_t i = 0; i < options.size(); i++) {
+            names.push_back(options[i] == 0 ? "Off" : std::to_string(options[i]) + (options[i] == 1 ? " minute" : " minutes"));
+            if (options[i] == current) initial = (int)i;
+        }
+        const int pick = ui::choose(title, names, initial);
+        return pick < 0 ? -1 : options[pick];
     }
 
     void scan() {

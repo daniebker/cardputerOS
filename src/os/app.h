@@ -27,6 +27,11 @@ public:
     // Called continuously while in the foreground / background. Must not block.
     virtual void onTick() {}
     virtual void onBackgroundTick() {}
+    // Return true while the device must not go to sleep (e.g. an open connection).
+    virtual bool keepAwake() { return false; }
+    // Optional one-line notice shown on the status screen even while the app is in
+    // the background (e.g. "2 new messages").
+    virtual const char* notice() { return nullptr; }
     // Optional short text shown next to the app name in the status bar.
     virtual const char* statusText() { return nullptr; }
 

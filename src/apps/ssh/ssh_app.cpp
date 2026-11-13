@@ -63,6 +63,9 @@ public:
         if (screen_ == Screen::Terminal) pumpOutput();
     }
 
+    // sleeping switches Wi-Fi off, which would drop the connection
+    bool keepAwake() override { return session_ && !session_->finished(); }
+
     const char* statusText() override {
         if (screen_ != Screen::Terminal || !term_) return nullptr;
         status_ = label_;

@@ -215,6 +215,22 @@ void forget(const std::string& name) {
     }
 }
 
+void suspend() {
+    if (!begun) return;
+    scanning = false;
+    target.clear();
+    WiFi.scanDelete();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+}
+
+void resume() {
+    if (!begun) return;
+    WiFi.mode(WIFI_STA);
+    ntpStarted = false;
+    nextAttempt = millis() + 500;
+}
+
 void disconnect() {
     userDisconnected = true;
     scanning = false;

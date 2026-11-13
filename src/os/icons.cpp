@@ -83,6 +83,39 @@ void crown(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     g.fillCircle(left + w / 2, valley + s / 6, s / 10, dr::red);
 }
 
+void mesh(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    // four radio nodes joined by links
+    const int px[4] = {x + s / 2, x + s / 8, x + s - s / 8, x + s / 2};
+    const int py[4] = {y + s / 8, y + s / 2 + s / 10, y + s / 2 + s / 10, y + s - s / 10};
+    static const int links[5][2] = {{0, 1}, {0, 2}, {1, 2}, {1, 3}, {2, 3}};
+    for (auto& l : links)
+        for (int t = -1; t <= 1; t++) {
+            g.drawLine(px[l[0]] + t, py[l[0]], px[l[1]] + t, py[l[1]], dr::comment);
+            g.drawLine(px[l[0]], py[l[0]] + t, px[l[1]], py[l[1]] + t, dr::comment);
+        }
+    for (int i = 0; i < 4; i++) {
+        g.fillCircle(px[i], py[i], s / 9, fg);
+        g.fillCircle(px[i], py[i], s / 22, dr::darkest);
+    }
+}
+
+void journal(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    // a bound book with a ribbon and dated lines
+    const int px = x + s / 8, w = s - s / 4;
+    g.fillRoundRect(px, y, w, s, 5, fg);
+    g.fillRect(px, y, s / 6, s, dr::comment);            // spine
+    g.fillRoundRect(px, y, s / 6, s, 3, dr::comment);
+    for (int i = 0; i < 4; i++) {
+        const int ly = y + s / 5 + i * (s / 6);
+        g.fillRect(px + s / 6 + 5, ly, 6, 3, dr::purple);              // time
+        g.fillRect(px + s / 6 + 14, ly, w - s / 6 - 20 - (i % 2) * 6, 3, dr::darker);  // text
+    }
+    // ribbon
+    const int rx = px + w - 12;
+    g.fillRect(rx, y, 6, s / 3, dr::red);
+    g.fillTriangle(rx, y + s / 3, rx + 6, y + s / 3, rx + 3, y + s / 3 - 4, fg);
+}
+
 void letter(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t, char c) {
     g.fillRoundRect(x, y, s, s, 8, fg);
     g.setFont(&fonts::FreeSansBold18pt7b);

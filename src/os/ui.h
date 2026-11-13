@@ -46,6 +46,10 @@ os::Rect header(os::Gfx& g, const os::Rect& area, const char* title);
 // Draws `text` at x,y cut to maxWidth pixels (uses the current font / colour).
 void drawClipped(os::Gfx& g, const std::string& text, int x, int y, int maxWidth);
 
+// UTF-8 text reduced to characters the built-in fonts can show (accents become
+// plain letters, unknown symbols "?").
+std::string displayable(const std::string& utf8);
+
 // --- blocking dialogs ---
 // Text entry. Returns false if cancelled. `secret` masks the input (Tab toggles).
 bool prompt(const char* title, std::string& value, bool secret = false, const char* hint = nullptr);
