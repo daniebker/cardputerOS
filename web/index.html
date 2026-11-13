@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cardputerOS Flasher</title>
+  <meta name="description" content="Install cardputerOS on an M5Stack Cardputer ADV from the browser.">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      --bg: #282a36;
+      --panel: #21222c;
+      --line: #44475a;
+      --text: #f8f8f2;
+      --dim: #9aa3c7;
+      --accent: #bd93f9;
+      --ok: #50fa7b;
+      --warn: #ffb86c;
+      --err: #ff5555;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+    h1 { font-size: 2rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+    h1 span { color: var(--accent); }
+    h2 { font-size: 1.1rem; margin: 32px 0 8px; }
+    .sub { color: var(--dim); margin: 0 0 28px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .install { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+    .version { color: var(--dim); font-size: 0.95rem; }
+    .version strong { color: var(--text); font-weight: 600; }
+    a { color: var(--accent); }
+    code {
+      font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    ol { padding-left: 1.3em; margin: 8px 0; }
+    li { margin: 6px 0; }
+    .note { border-left: 3px solid var(--warn); padding: 8px 14px; margin: 16px 0 0; background: var(--panel); border-radius: 0 8px 8px 0; }
+    .muted { color: var(--dim); }
+    esp-web-install-button button[slot="activate"] {
+      font: 600 1rem system-ui, sans-serif;
+      color: #191a21;
+      background: var(--accent);
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 22px;
+      cursor: pointer;
+    }
+    esp-web-install-button button[slot="activate"]:hover { filter: brightness(1.08); }
+    esp-web-install-button button[slot="activate"]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    [slot="unsupported"], [slot="not-allowed"] { color: var(--err); }
+    footer { margin-top: 40px; color: var(--dim); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>cardputer<span>OS</span> flasher</h1>
+    <p class="sub">Install cardputerOS on an M5Stack Cardputer ADV straight from the browser: no tools to install.</p>
+
+    <section class="card install" aria-label="Install">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Connect and install</button>
+        <span slot="unsupported">This browser cannot talk to USB serial devices. Use Chrome, Edge or Opera on a desktop computer.</span>
+        <span slot="not-allowed">Installing only works over HTTPS (or on localhost).</span>
+      </esp-web-install-button>
+      <div class="version" id="version">Loading firmware details…</div>
+    </section>
+
+    <h2>How to install</h2>
+    <ol>
+      <li>Connect the Cardputer to this computer with a USB-C data cable and switch it on.</li>
+      <li>Click <strong>Connect and install</strong> and pick the Cardputer's serial port
+        (usually “USB JTAG/serial debug unit”).</li>
+      <li>Choose <strong>Install cardputerOS</strong>. Leave <em>Erase device</em> unticked to keep
+        your notes, journal, SSH key and settings.</li>
+      <li>Wait until it reports success, then press the reset button (or switch the Cardputer off and on).</li>
+    </ol>
+
+    <p class="note">If no port shows up, or the connection fails: switch the Cardputer off, hold
+      <strong>G0</strong> while switching it on (download mode), then try again.</p>
+
+    <h2>Updating</h2>
+    <p class="muted">Installing over an existing cardputerOS only replaces the system. Notes, journal
+      days, Wi-Fi networks and the SSH key live in a separate part of the flash and are kept, unless you
+      tick <em>Erase device</em>, which wipes everything.</p>
+
+    <h2>Other ways</h2>
+    <p class="muted">The firmware images are also attached to every
+      <a id="releases" href="#">GitHub release</a>, for flashing with esptool:
+      <code>esptool.py --chip esp32s3 write_flash 0x10000 cardputerOS-vX.Y.Z-app.bin</code>
+      updates an installed system; the <code>-full.bin</code> image goes to <code>0x0</code> for a
+      first install (it resets the settings).</p>
+
+    <footer>Flashing uses <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>.</footer>
+  </main>
+
+  <script>
+    // https://OWNER.github.io/REPO/ -> https://github.com/OWNER/REPO
+    function repoUrl() {
+      const host = location.hostname;
+      const repo = location.pathname.split("/").filter(Boolean)[0];
+      if (!host.endsWith(".github.io") || !repo) return null;
+      return "https://github.com/" + host.slice(0, -".github.io".length) + "/" + repo;
+    }
+
+    const repo = repoUrl();
+    if (repo) document.getElementById("releases").href = repo + "/releases";
+
+    fetch("manifest.json", { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then((m) => {
+        const el = document.getElementById("version");
+        el.textContent = "";
+        const strong = document.createElement("strong");
+        strong.textContent = "Version " + m.version;
+        el.append(strong);
+        if (repo) {
+          const a = document.createElement("a");
+          a.href = repo + "/releases/tag/v" + m.version;
+          a.textContent = "what's new";
+          el.append(" · ", a);
+        }
+      })
+      .catch(() => {
+        document.getElementById("version").textContent =
+          "No firmware published yet: push a version tag to create one.";
+      });
+  </script>
+</body>
+</html>

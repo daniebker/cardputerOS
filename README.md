@@ -5,6 +5,9 @@ A small operating system for the **M5Stack Cardputer ADV** that uses an external
 status bar, background apps and a built-in SSH client. The built-in 1.14" screen
 shows a short status summary.
 
+**[Install it from the browser with the web flasher](https://daniebker.github.io/cardputerOS/)**
+(Chrome or Edge on a desktop computer, USB cable, nothing else to install).
+
 ## Wiring
 
 The display connects to the 14-pin EXT header. Defaults (edit `include/board_config.h`
@@ -33,6 +36,11 @@ are wrong see `EXT_TFT_BGR` / `EXT_TFT_INVERT` in the same file.
 
 ## Build and flash
 
+The quickest way to install a released version is the
+[web flasher](https://daniebker.github.io/cardputerOS/): connect the Cardputer over USB, click
+**Connect and install**, pick its serial port and choose **Install cardputerOS**. Leave
+*Erase device* unticked to keep notes, keys and settings. To build it yourself:
+
 ```
 pio run -t upload          # build + flash over USB
 pio test -e native         # run the host-side unit tests
@@ -40,6 +48,28 @@ pio test -e native         # run the host-side unit tests
 
 If the Cardputer does not show up as a serial port, hold **G0** while switching it on
 to enter download mode.
+
+**CI and releases.** GitHub Actions (`.github/workflows/build.yml`) runs the unit tests
+and builds the firmware on every push to a branch and on pull requests; the images are
+attached to the run as the `firmware` artifact. A release is only created when a version
+tag is pushed:
+
+```
+# bump kVersion in src/os/kernel.h and add a "## [x.y.z]" section to CHANGELOG.md, then
+git tag -a v0.6.0 -m "cardputerOS 0.6.0" && git push origin main v0.6.0
+```
+
+The tag must match `kVersion` and have a CHANGELOG section, which becomes the release
+notes, and the [web flasher](https://daniebker.github.io/cardputerOS/) on GitHub Pages is
+updated to it. Each release also has `cardputerOS-vX.Y.Z-app.bin` (flash at `0x10000` to
+update; everything is kept) and `-full.bin` (flash at `0x0` for a first install with
+`esptool.py --chip esp32s3 write_flash 0x0 ...`; it keeps notes and keys but resets the
+settings).
+
+The flasher page is `web/index.html`. Before the first release, enable Pages once in the
+repository: **Settings → Pages → Source: GitHub Actions**. To try the page locally, put a
+`manifest.json` and the firmware next to it and serve the folder on `localhost` (Web
+Serial only works over HTTPS or on localhost).
 
 ## Keys
 

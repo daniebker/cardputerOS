@@ -4,6 +4,15 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-13
+
+### Added
+
+- Web flasher on GitHub Pages: install or update cardputerOS from Chrome or
+  Edge over USB, keeping notes, keys and settings.
+- GitHub Actions: tests and firmware build on every push; a GitHub release
+  with the firmware images when a version tag is pushed.
+
 ## [0.5.0] - 2026-11-13
 
 ### Added

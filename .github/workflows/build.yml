@@ -1,0 +1,198 @@
+# Tests and builds the firmware on every push to a branch (and on pull requests).
+# A GitHub release with the firmware is only created when a version tag (v1.2.3)
+# is pushed; the web flasher on GitHub Pages is then updated to that release.
+# (Pages must be enabled once: Settings -> Pages -> Source: GitHub Actions.)
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Run tests
+        run: pio test -e native
+
+  build:
+    name: Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-esp32-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-esp32-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: pip install platformio esptool
+
+      - name: Check that the tag matches the firmware version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          code=$(sed -n 's/.*kVersion = "\(.*\)".*/\1/p' src/os/kernel.h)
+          if [ "v$code" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match kVersion \"$code\" in src/os/kernel.h"
+            exit 1
+          fi
+          if ! grep -q "^## \[$code\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $code"
+            exit 1
+          fi
+
+      - name: Build
+        run: pio run -e cardputer-adv
+
+      - name: Package
+        run: |
+          name="cardputerOS-${GITHUB_REF_NAME//\//-}"
+          out=dist
+          b=.pio/build/cardputer-adv
+          mkdir -p "$out"
+          cp "$b/firmware.bin" "$out/$name-app.bin"
+          # One image with bootloader, partition table and app, to flash at 0x0. Gaps are
+          # filled, so it also clears the settings (NVS at 0x9000: Wi-Fi, accounts); the
+          # file system with notes and keys (after the app) is not touched.
+          python -m esptool --chip esp32s3 merge_bin -o "$out/$name-full.bin" \
+            --flash_mode keep --flash_freq keep --flash_size keep \
+            0x0 "$b/bootloader.bin" \
+            0x8000 "$b/partitions.bin" \
+            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 "$b/firmware.bin"
+          # The separate parts, for the web flasher (written one by one, NVS is kept).
+          mkdir -p "$out/parts"
+          cp "$b/bootloader.bin" "$b/partitions.bin" "$b/firmware.bin" "$out/parts/"
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin "$out/parts/"
+          (cd "$out" && sha256sum *.bin > SHA256SUMS)
+          ls -l "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/ { if (on) exit; on = index($0, "## [" v "]") == 1; next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<'EOF'
+
+          ### Flashing
+
+          The easiest way is the web flasher (see the README). Or with esptool:
+
+          - `*-app.bin`: the app only, flash at `0x10000` to update an installed
+            cardputerOS. Everything is kept.
+          - `*-full.bin`: complete image, flash at `0x0` for a first install
+            (`esptool.py --chip esp32s3 write_flash 0x0 cardputerOS-*-full.bin`).
+            Notes, journal days and SSH keys are kept, but settings (Wi-Fi networks,
+            sync accounts) are reset.
+          EOF
+          cat notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.bin dist/SHA256SUMS \
+            --title "cardputerOS ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md \
+            --verify-tag
+
+  pages:
+    name: Web flasher
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: dist
+      - name: Assemble the site
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p site
+          cp web/index.html site/
+          mkdir -p site/firmware
+          cp dist/parts/*.bin site/firmware/
+          # ESP Web Tools manifest. The parts are written one by one, so the settings
+          # (NVS) and the file system with notes and keys are kept. Erasing is offered
+          # but not preselected.
+          cat > site/manifest.json <<EOF
+          {
+            "name": "cardputerOS",
+            "version": "$version",
+            "new_install_prompt_erase": true,
+            "new_install_improv_wait_time": 0,
+            "builds": [
+              {
+                "chipFamily": "ESP32-S3",
+                "parts": [
+                  { "path": "firmware/bootloader.bin", "offset": 0 },
+                  { "path": "firmware/partitions.bin", "offset": 32768 },
+                  { "path": "firmware/boot_app0.bin", "offset": 57344 },
+                  { "path": "firmware/firmware.bin", "offset": 65536 }
+                ]
+              }
+            ]
+          }
+          EOF
+          python3 -m json.tool site/manifest.json
+          ls -l site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
