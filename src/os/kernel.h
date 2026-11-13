@@ -6,7 +6,7 @@
 
 namespace os {
 
-constexpr const char* kVersion = "0.8.0";
+constexpr const char* kVersion = "0.9.0";
 
 void begin();
 void loopOnce();
@@ -29,5 +29,15 @@ void refreshStatus();
 std::string bootHistory();
 // Re-apply display settings (rotation) and repaint the foreground app.
 void displaySettingsChanged();
+
+// Apps added and removed at run time (the Lua apps on the SD card). `info.ctx`
+// identifies the app and must be unique; the strings in `info` must stay valid
+// until the app is removed. Removing a running app closes it first.
+void addApp(const AppInfo& info);
+void removeApp(void* ctx);
+bool appRunning(void* ctx);
+// True while the user asked for the home screen and the foreground app has not
+// returned yet (dialogs are being closed).
+bool homeRequested();
 
 }  // namespace os

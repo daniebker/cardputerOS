@@ -1,6 +1,7 @@
 // App framework. To add an app: create a .cpp in src/apps, derive from os::App
 // and register it with OS_REGISTER_APP (or OS_REGISTER_APP_IN to put it in a
-// home screen folder). It then shows up in the launcher.
+// home screen folder). It then shows up in the launcher. Apps can also be added
+// while running (os::addApp, used for the Lua apps on the SD card).
 #pragma once
 #include <M5GFX.h>
 
@@ -48,12 +49,14 @@ struct AppInfo {
     const char* name;
     const char* description;
     uint32_t color;  // 0xRRGGBB, home screen icon colour
-    App* (*create)();
+    App* (*create)(void* ctx);
     // Home screen icon (see os/icons.h); nullptr = the first letter of the name.
     void (*icon)(Gfx& g, int x, int y, int size, uint32_t fg, uint32_t bg);
     int order;  // position on the home screen, lowest first
     // Home screen folder the app is shown in (e.g. "Games"); nullptr = the home screen itself.
     const char* folder;
+    // Passed to create(); identifies apps added with os::addApp.
+    void* ctx = nullptr;
 };
 
 struct AppRegistrar {
@@ -62,12 +65,12 @@ struct AppRegistrar {
 
 #define OS_REGISTER_APP(Class, name, description, color, icon, order) \
     static os::AppRegistrar s_registrar_##Class( \
-        {name, description, color, []() -> os::App* { return new Class(); }, icon, order, nullptr})
+        {name, description, color, [](void*) -> os::App* { return new Class(); }, icon, order, nullptr})
 
 // Same, but the app is placed in a folder on the home screen. Apps with the same
 // folder name are grouped; the folder sits where its first app would be.
 #define OS_REGISTER_APP_IN(Class, folder, name, description, color, icon, order) \
     static os::AppRegistrar s_registrar_##Class( \
-        {name, description, color, []() -> os::App* { return new Class(); }, icon, order, folder})
+        {name, description, color, [](void*) -> os::App* { return new Class(); }, icon, order, folder})
 
 }  // namespace os

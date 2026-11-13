@@ -13,6 +13,7 @@
 #include "icons.h"
 #include "net.h"
 #include "power.h"
+#include "sd_apps.h"
 #include "secrets.h"
 #include "storage.h"
 #include "theme.h"
@@ -292,7 +293,7 @@ void launch(int index) {
     if (index < 0 || index >= (int)slots().size()) return;
     Slot& s = slots()[index];
     if (!s.inst) {
-        s.inst = s.info.create();
+        s.inst = s.info.create(s.info.ctx);
         s.inst->onStart();
     }
     foreground = index;
@@ -489,15 +490,47 @@ void services(bool maySleep) {
 
 }  // namespace
 
-AppRegistrar::AppRegistrar(const AppInfo& info) {
+namespace {
+// Inserts in home screen order (registration order itself is arbitrary); apps
+// with the same order keep the order they were added in.
+void insertSlot(const AppInfo& info) {
     Slot s;
     s.info = info;
-    // keep the home screen order (registration order itself is arbitrary)
     auto& v = slots();
     auto pos = v.begin();
     while (pos != v.end() && pos->info.order <= info.order) ++pos;
+    const int index = (int)(pos - v.begin());
     v.insert(pos, s);
+    if (foreground >= index) foreground++;
 }
+}  // namespace
+
+AppRegistrar::AppRegistrar(const AppInfo& info) { insertSlot(info); }
+
+void addApp(const AppInfo& info) { insertSlot(info); }
+
+void removeApp(void* ctx) {
+    if (!ctx) return;  // built-in apps have none
+    auto& v = slots();
+    for (int i = 0; i < (int)v.size(); i++) {
+        if (v[i].info.ctx != ctx) continue;
+        const bool wasForeground = foreground == i;
+        closeApp(i);
+        v.erase(v.begin() + i);
+        if (foreground > i) foreground--;
+        if (wasForeground) showForeground();
+        return;
+    }
+}
+
+bool appRunning(void* ctx) {
+    if (!ctx) return false;
+    for (auto& s : slots())
+        if (s.info.ctx == ctx) return s.inst != nullptr;
+    return false;
+}
+
+bool homeRequested() { return homePending; }
 
 #ifdef SCREENSHOT_DEBUG
 // Debug build: everything is drawn into this canvas, which can be dumped over USB.
@@ -757,6 +790,7 @@ void begin() {
     power::activity();
     unlockAtBoot();
     homePending = false;
+    sdapps::scan();  // Lua apps on the SD card
     // Wi-Fi starts a few seconds after boot (see services()), once the UI is up.
 
     hal::display.fillScreen(theme::bg);

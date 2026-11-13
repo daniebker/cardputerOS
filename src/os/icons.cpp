@@ -1,6 +1,7 @@
 #include "icons.h"
 
 #include <cmath>
+#include <cstring>
 
 #include "theme.h"
 
@@ -167,6 +168,19 @@ void letter(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t, char c) {
     g.setTextColor(dr::darkest);
     const char str[2] = {c, 0};
     g.drawString(str, x + s / 2, y + s / 2 + 2);
+}
+
+DrawFn byName(const char* name) {
+    static const struct {
+        const char* name;
+        DrawFn fn;
+    } table[] = {
+        {"terminal", terminal}, {"note", note},       {"gear", gear},   {"sudoku", sudoku}, {"crown", crown},
+        {"mesh", mesh},         {"journal", journal}, {"tiles", tiles}, {"radar", radar},
+    };
+    for (const auto& e : table)
+        if (strcmp(e.name, name) == 0) return e.fn;
+    return nullptr;
 }
 
 }  // namespace icons

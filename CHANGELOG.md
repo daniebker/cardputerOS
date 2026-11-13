@@ -4,6 +4,25 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-11-13
+
+### Added
+
+- Lua apps from the SD card: each folder `/cardputerOS/apps/<name>/` with a
+  `main.lua` (and optionally an `app.ini` for its name, colour, icon and home screen
+  folder) appears on the home screen and runs like a built-in app, without
+  rebuilding the firmware. Apps can draw, read keys, use the system dialogs, keep
+  save data in the internal flash, read and write files in their own folder and
+  load modules with `require`. Each app runs in a sandbox (Lua 5.4) with a memory
+  limit and a time limit per call; an error stops the app with the message and
+  where it happened, and `r` restarts it. See `docs/lua-apps.md`.
+- Settings → SD card apps looks for new apps on the card and lists problems.
+- Example apps in `examples/apps`: Hello, Snake and Clock.
+
+### Changed
+
+- The main loop's stack is 24 KB (was 16 KB), for the Lua interpreter.
+
 ## [0.8.0] - 2026-11-13
 
 ### Added

@@ -1,0 +1,10 @@
+{
+  "name": "lua",
+  "version": "5.4.7",
+  "description": "Lua 5.4.7 interpreter, compiled as C++ (see src/lua_all.cpp)",
+  "license": "MIT",
+  "build": {
+    "srcFilter": ["-<*>", "+<lua_all.cpp>"],
+    "flags": ["-Wno-unused-function", "-Wno-unused-variable"]
+  }
+}

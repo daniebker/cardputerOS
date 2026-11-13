@@ -363,6 +363,35 @@ like; the game ends when no move is possible.
 
 The game in progress and the best score are kept across restarts.
 
+## Lua apps from the SD card
+
+Apps can also be written in [Lua](https://www.lua.org) and run straight from the
+microSD card, without building or flashing firmware. Each app is a folder
+`/cardputerOS/apps/<name>/` on the card with a `main.lua` (and optionally an `app.ini`
+with its name, icon colour and home screen folder). They appear on the home screen like
+the built-in apps; **Settings → SD card apps** looks for new ones after you insert a card
+or copy an app (the card is also checked at startup).
+
+```lua
+local app = {}
+function app.draw()
+  gfx.clear()
+  gfx.text("Hello, world!", 160, 110, colors.green, {font = "large", align = "center"})
+end
+function app.key(k)
+  if k.key == "q" then sys.exit() end
+end
+return app
+```
+
+Apps can draw, read keys, show dialogs, keep save data in the internal flash and read
+and write files in their own folder on the card. Each runs in a sandbox with a memory
+and time limit, so a bug stops the app with an error message instead of freezing the
+device. **[docs/lua-apps.md](docs/lua-apps.md)** describes the whole API.
+`examples/apps` has three apps to try or start from (copy the folders to
+`/cardputerOS/apps/` on the card): *Hello*, *Snake* (in the Games folder) and *Clock*
+(with a timer that runs in the background).
+
 ## Layout
 
 ```
@@ -371,7 +400,7 @@ lib/core                 key event type (portable)
 lib/vterm                terminal emulator (portable, unit tested on the host)
 src/hal                  ILI9341 display driver, keyboard driver
 src/os                   kernel (launcher, status bar, app lifecycle), UI toolkit,
-                         Wi-Fi, storage, terminal renderer
+                         Wi-Fi, storage, terminal renderer, SD card Lua apps
 lib/vim                  vi-style editor engine (portable, unit tested on the host)
 lib/dav                  WebDAV / HTTP parsing (portable, unit tested)
 lib/sudoku               Sudoku generator and solver (portable, unit tested)
@@ -381,6 +410,10 @@ lib/rogue                roguelike game rules (portable, unit tested with a bot 
 lib/merge                sliding tile puzzle rules (portable, unit tested)
 lib/wardrive             wardriving device table and WiGLE CSV log (portable, unit tested)
 lib/vault                encryption of stored secrets (portable, unit tested)
+lib/lua                  Lua 5.4.7 interpreter (built as C++)
+lib/script               Lua app runtime: sandbox, API bindings, save data (portable, unit tested)
+examples/apps            example Lua apps for the SD card
+docs/lua-apps.md         how to write Lua apps
 src/apps                 apps: settings, ssh, notes, journal, mesh, wardrive, sudoku, rogue, merge
 test/                    host-side unit tests
 ```
@@ -398,7 +431,9 @@ class NotesApp : public os::App {
 OS_REGISTER_APP(NotesApp, "Notes", "Markdown notes", theme::dracula::foreground, icons::note, 20);
 ```
 
-It appears on the home screen automatically, ordered by the last number. To put it in a
+It appears on the home screen automatically, ordered by the last number. (For an app
+that doesn't need to be part of the firmware, a Lua app on the SD card is simpler: see
+above.) To put it in a
 home screen folder, use `OS_REGISTER_APP_IN(Class, "Games", name, ...)` with the same
 arguments after the folder name; the folder is created as soon as one app uses it. `ui::List`,
 `ui::prompt`, `ui::confirm` and `os::TermView` are available as building blocks.

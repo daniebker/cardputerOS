@@ -9,6 +9,7 @@
 #include "../os/icons.h"
 #include "../os/net.h"
 #include "../os/power.h"
+#include "../os/sd_apps.h"
 #include "../os/secrets.h"
 #include "../os/storage.h"
 #include "../os/term_view.h"
@@ -28,7 +29,7 @@ public:
 
 private:
     enum class Page { Main, Wifi };
-    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemDim, ItemSleep, ItemPassphrase, ItemAbout };
+    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemDim, ItemSleep, ItemPassphrase, ItemSdApps, ItemAbout };
 
     static std::string tzText() {
         int m = storage::getInt("tz_min", 0);
@@ -50,6 +51,7 @@ private:
             main_.items.push_back({"Dim screen on battery", minutesText(power::dimMinutes()), 0});
             main_.items.push_back({"Sleep on battery", minutesText(power::sleepMinutes()), 0});
             main_.items.push_back({"Passphrase", secrets::unlocked() ? "change" : "not set", 0});
+            main_.items.push_back({"SD card apps", "look for new apps", 0});
             main_.items.push_back({"About", "", 0});
             main_.draw(g, rect_);
         } else {
@@ -107,6 +109,9 @@ private:
             case ItemPassphrase:
                 changePassphrase();
                 break;
+            case ItemSdApps:
+                scanSdApps();
+                break;
             case ItemAbout: {
                 char buf[320];
                 snprintf(buf, sizeof buf, "cardputerOS %s\nIP: %s\nMAC: %s\nFree memory: %u KB\nStorage: %s\nLast boots: %s",
@@ -118,6 +123,24 @@ private:
             }
         }
         draw();
+    }
+
+    // Looks for Lua apps on the SD card again (after inserting a card or copying apps).
+    static void scanSdApps() {
+        ui::busy("Looking for apps on the SD card...");
+        const sdapps::ScanResult r = sdapps::scan();
+        std::string msg;
+        if (!r.card) {
+            msg = "No SD card found.";
+        } else if (r.apps.empty() && r.problems.empty()) {
+            msg = std::string("No apps found. Each app is a folder in ") + sdapps::kRoot + " with a main.lua.";
+        } else {
+            msg = std::to_string(r.apps.size()) + (r.apps.size() == 1 ? " app" : " apps") + " on the home screen";
+            for (size_t i = 0; i < r.apps.size(); i++) msg += (i ? ", " : ": ") + r.apps[i];
+            msg += ".";
+        }
+        for (auto& p : r.problems) msg += "\n" + p;
+        ui::alert("SD card apps", msg);
     }
 
     static void changePassphrase() {
