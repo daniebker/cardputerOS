@@ -4,6 +4,7 @@
 
 #include <map>
 
+#include "../../os/secrets.h"
 #include "../../os/storage.h"
 
 // NVS keys. "dav_kind" marks the account as WebDAV; accounts saved by the
@@ -13,7 +14,7 @@ SyncAccount SyncAccount::load() {
     if (storage::getStr("dav_kind") != "webdav") return a;
     a.url = storage::getStr("dav_url");
     a.user = storage::getStr("dav_user");
-    a.pass = storage::getStr("dav_pass");
+    a.pass = secrets::get("dav_pass");
     return a;
 }
 
@@ -21,14 +22,14 @@ void SyncAccount::save() const {
     storage::putStr("dav_kind", "webdav");
     storage::putStr("dav_url", url);
     storage::putStr("dav_user", user);
-    storage::putStr("dav_pass", pass);
+    secrets::put("dav_pass", pass);
 }
 
 bool SyncAccount::hasLegacyAccount() { return storage::getStr("dav_kind") != "webdav" && !storage::getStr("dav_url").empty(); }
 
 void SyncAccount::clearLegacy() {
     storage::putStr("dav_url", "");
-    storage::putStr("dav_pass", "");
+    secrets::put("dav_pass", "");
 }
 
 namespace {

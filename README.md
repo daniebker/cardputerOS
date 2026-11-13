@@ -100,6 +100,32 @@ SSH terminal:
 | `opt` + `x` | Disconnect |
 | `opt` + `k` | Install this device's SSH key on the host |
 
+## Passphrase and encryption
+
+Saved secrets are stored encrypted: Wi-Fi passwords, SSH hosts and their passwords,
+the WebDAV passwords of Notes and Journal, and the SSH private key. On the first start
+with this version you choose a passphrase (at least 6 characters); any secrets already
+stored are encrypted with it right away. From then on the passphrase is asked for each
+time the Cardputer starts. Waking from sleep does not ask again. Until it is entered
+nothing can read the secrets, so Wi-Fi only starts after unlocking.
+
+After 3 wrong passphrases in a row the unlock prompt makes you wait 30 seconds, and
+each further wrong one doubles the wait, up to an hour. The count is kept across
+restarts and saved before each check, so restarting or pulling the power does not
+help: a restart starts the wait over. Esc during the wait still lets you delete the
+secrets and start fresh. Changing the passphrase in Settings counts in the same way.
+
+**Settings → Passphrase** changes it. If you forget it, press Esc at the unlock prompt:
+the encrypted secrets and the SSH key are deleted (they cannot be recovered) and you
+choose a new passphrase. Notes, journal entries and other settings are not affected.
+
+How it works: a random 256-bit key encrypts each secret with AES-256-GCM. That key is
+stored wrapped with a key derived from the passphrase (PBKDF2-SHA256, 30,000 rounds),
+so a copy of the flash memory alone reveals none of these secrets, and guessing the passphrase from
+it is slow. A short or common passphrase can still be guessed, so use a few words.
+Not covered: notes and journal entries, the Mesh message history, and Bluetooth pairing
+keys, which the Bluetooth stack stores itself.
+
 ## Battery saving
 
 **Settings → Dim screen on battery** and **Sleep on battery** set how long the device
@@ -354,6 +380,7 @@ lib/mesh                 Meshtastic client protocol and message store (portable,
 lib/rogue                roguelike game rules (portable, unit tested with a bot player)
 lib/merge                sliding tile puzzle rules (portable, unit tested)
 lib/wardrive             wardriving device table and WiGLE CSV log (portable, unit tested)
+lib/vault                encryption of stored secrets (portable, unit tested)
 src/apps                 apps: settings, ssh, notes, journal, mesh, wardrive, sudoku, rogue, merge
 test/                    host-side unit tests
 ```

@@ -4,6 +4,7 @@
 
 #include <libssh/libssh.h>
 
+#include "../../os/secrets.h"
 #include "../../os/storage.h"
 
 namespace sshkeys {
@@ -63,18 +64,21 @@ bool generateAt(const char* privPath, const char* pubPath, std::string& err) {
     const std::string pubLine = std::string("ssh-ed25519 ") + b64 + " " + kComment + "\n";
     ssh_string_free_char(b64);
 
-    const bool ok = storage::writeFile(privPath, privText) && storage::writeFile(pubPath, pubLine);
+    // the private key is stored encrypted (see os/secrets.h)
+    const bool ok = secrets::writeFile(privPath, privText) && storage::writeFile(pubPath, pubLine);
     privText.assign(privText.size(), '\0');
     if (!ok) {
-        err = "Could not write the key files (storage full?).";
+        err = secrets::unlocked() ? "Could not write the key files (storage full?)." : "The secrets are locked.";
         return false;
     }
 
     // Read it back the way a connection will, so a broken file is caught now.
     Key check;
-    const std::string path = storage::vfsPath(privPath);
-    if (ssh_pki_import_privkey_file(path.c_str(), nullptr, nullptr, nullptr, &check.k) != SSH_OK ||
-        ssh_key_cmp(key.k, check.k, SSH_KEY_CMP_PUBLIC) != 0) {
+    std::string stored;
+    const bool readable = secrets::readFile(privPath, stored) &&
+                          ssh_pki_import_privkey_base64(stored.c_str(), nullptr, nullptr, nullptr, &check.k) == SSH_OK;
+    stored.assign(stored.size(), '\0');
+    if (!readable || ssh_key_cmp(key.k, check.k, SSH_KEY_CMP_PUBLIC) != 0) {
         storage::remove(privPath);
         storage::remove(pubPath);
         err = "The saved key could not be read back.";

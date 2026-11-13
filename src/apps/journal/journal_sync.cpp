@@ -2,6 +2,7 @@
 
 #include <map>
 
+#include "../../os/secrets.h"
 #include "../../os/storage.h"
 #include "journal.h"
 
@@ -9,14 +10,14 @@ JournalAccount JournalAccount::load() {
     JournalAccount a;
     a.url = storage::getStr("jr_url");
     a.user = storage::getStr("jr_user");
-    a.pass = storage::getStr("jr_pass");
+    a.pass = secrets::get("jr_pass");
     return a;
 }
 
 void JournalAccount::save() const {
     storage::putStr("jr_url", url);
     storage::putStr("jr_user", user);
-    storage::putStr("jr_pass", pass);
+    secrets::put("jr_pass", pass);
 }
 
 namespace {

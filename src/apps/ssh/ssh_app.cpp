@@ -8,6 +8,7 @@
 #include "../../os/kernel.h"
 #include "../../os/icons.h"
 #include "../../os/net.h"
+#include "../../os/secrets.h"
 #include "../../os/storage.h"
 #include "../../os/term_view.h"
 #include "../../os/theme.h"
@@ -80,7 +81,7 @@ private:
     // ------------------------------------------------------------ storage
     void loadHosts() {
         hosts_.clear();
-        for (auto& line : storage::splitLines(storage::getStr("ssh_hosts"))) {
+        for (auto& line : storage::splitLines(secrets::get("ssh_hosts"))) {
             auto f = storage::splitFields(line);
             if (f.size() < 4 || f[1].empty()) continue;
             Host h;
@@ -99,7 +100,7 @@ private:
         for (auto& h : hosts_) {
             text += h.name + "\t" + h.host + "\t" + std::to_string(h.port) + "\t" + h.user + "\t" + h.pass + "\n";
         }
-        storage::putStr("ssh_hosts", text);
+        secrets::put("ssh_hosts", text);
     }
 
     // known hosts: one "host:port<TAB>keytype fingerprint" line each
@@ -357,10 +358,7 @@ private:
         cfg.cols = cols_;
         cfg.rows = rows_;
         for (const char* k : kKeyFiles) {
-            if (storage::exists(k)) {
-                cfg.keyPath = storage::vfsPath(k);
-                break;
-            }
+            if (secrets::readFile(k, cfg.keyText)) break;
         }
         hostId_ = h.id();
         label_ = h.user + "@" + h.host;
@@ -374,6 +372,7 @@ private:
         if (!session_->start(cfg)) {
             term_->write("\x1b[31mCould not start the SSH task (out of memory?).\x1b[0m\r\n[Press Enter.]\r\n");
         }
+        cfg.keyText.assign(cfg.keyText.size(), '\0');  // the session has its own copy
         os::refreshStatus();
         drawTerminal();
     }

@@ -18,7 +18,7 @@ public:
 
     struct Config {
         std::string host, user, password;
-        std::string keyPath;  // private key file (VFS path) or empty
+        std::string keyText;  // private key (OpenSSH / PEM text) or empty
         int port = 22;
         int cols = 80, rows = 24;
     };

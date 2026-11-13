@@ -13,6 +13,7 @@
 #include "icons.h"
 #include "net.h"
 #include "power.h"
+#include "secrets.h"
 #include "storage.h"
 #include "theme.h"
 #include "ui.h"
@@ -330,6 +331,7 @@ bool statusValid = false;
 Status currentStatus() {
     Status st;
     st.app = foreground < 0 ? (launcher.folder().empty() ? "Home" : launcher.folder()) : slots()[foreground].info.name;
+    if (!secrets::unlocked()) st.app = "Locked";
     if (foreground >= 0) {
         const char* t = slots()[foreground].inst->statusText();
         if (t) st.appStatus = t;
@@ -463,7 +465,8 @@ void services(bool maySleep) {
     markStage('L');
     if (now > 5000) markStage('5');
     if (now > 30000) markStage('T');
-    if (!net::started() && now > 4000) {
+    // Wi-Fi needs the saved passwords: wait until the secrets are unlocked
+    if (!net::started() && now > 4000 && secrets::unlocked()) {
         net::begin();
         markStage('W');
     }
@@ -614,6 +617,111 @@ void recordBoot() {
 
 std::string bootHistory() { return storage::getStr("bootlog"); }
 
+namespace {
+void splash(const char* subtitle) {
+    Gfx& g = gfx();
+    const Rect c = content();
+    g.startWrite();
+    g.fillRect(c.x, c.y, c.w, c.h, theme::bg);
+    g.setTextDatum(textdatum_t::top_center);
+    g.setFont(theme::fontBig());
+    g.setTextColor(theme::accent);
+    g.drawString("cardputerOS", c.x + c.w / 2, c.y + 14);
+    g.setFont(theme::fontSmall());
+    g.setTextColor(theme::dim);
+    g.drawString(subtitle, c.x + c.w / 2, c.y + 40);
+    g.endWrite();
+}
+
+// First start with encryption: choose the passphrase, then encrypt what is stored.
+void choosePassphrase() {
+    splash("Set up encryption");
+    ui::alert("Choose a passphrase",
+              "Saved Wi-Fi, SSH and WebDAV passwords and the SSH key are stored encrypted. "
+              "Choose a passphrase to protect them; it is asked for each time the Cardputer starts.\n\n"
+              "If you forget it, these have to be entered again.");
+    for (int attempt = 0; attempt < 3; attempt++) {
+        std::string pass;
+        homePending = false;
+        while (!secrets::askNewPassphrase("New passphrase", pass)) homePending = false;
+        splash("Set up encryption");
+        ui::busy("Encrypting...");
+        const bool ok = secrets::setUp(pass);
+        pass.assign(pass.size(), '\0');
+        if (ok) return;
+        ui::alert("Encryption", "The passphrase could not be saved.");
+    }
+    // give up: the device works, but nothing that needs a secret does (not even Wi-Fi)
+}
+
+// True if the user chose to delete the secrets and set a new passphrase.
+bool forgotPassphrase() {
+    homePending = false;
+    if (!ui::confirm("Forgot the passphrase?",
+                     "The saved Wi-Fi, SSH and WebDAV passwords and the SSH key cannot be recovered "
+                     "without it and will be deleted. Notes, journal and other settings are kept.\n\n"
+                     "Delete them and choose a new passphrase?"))
+        return false;
+    secrets::erase();
+    choosePassphrase();
+    return true;
+}
+
+// Brute force protection: after too many wrong passphrases, count down until the
+// next try is allowed. False if Esc was pressed meanwhile.
+bool waitLockout() {
+    uint32_t shown = 0;
+    bool drawn = false;
+    for (;;) {
+        const uint32_t s = secrets::waitSeconds();
+        if (s == 0) return true;
+        if (!drawn || s != shown) {
+            if (!drawn) splash("Locked   -   Esc: forgot the passphrase");
+            drawn = true;
+            shown = s;
+            char buf[48];
+            snprintf(buf, sizeof buf, "Too many wrong tries. Wait %u:%02u", (unsigned)(s / 60), (unsigned)(s % 60));
+            ui::busy(buf);
+        }
+        key::Event ev;
+        if (modalPoll(ev)) {
+            homePending = false;
+            if (ev.code == key::Esc) return false;
+        }
+    }
+}
+
+// Asks for the passphrase until it is right; nothing can read the secrets before.
+void unlockAtBoot() {
+    if (!secrets::isSetUp()) {
+        choosePassphrase();
+        return;
+    }
+    for (;;) {
+        homePending = false;
+        if (!waitLockout()) {
+            if (forgotPassphrase()) return;
+            continue;
+        }
+        splash("Locked");
+        std::string pass;
+        const uint32_t failed = secrets::failedAttempts();
+        std::string hint = "Enter your passphrase.   Esc: forgot it";
+        if (failed) hint = std::to_string(failed) + " wrong " + (failed == 1 ? "try" : "tries") + ".   Esc: forgot it";
+        if (!ui::prompt("Unlock", pass, true, hint.c_str())) {
+            if (forgotPassphrase()) return;
+            continue;
+        }
+        ui::busy("Unlocking...");
+        const bool ok = secrets::unlock(pass);
+        pass.assign(pass.size(), '\0');
+        if (ok) return;
+        homePending = false;
+        if (secrets::waitSeconds() == 0) ui::alert("Unlock", "Wrong passphrase.");
+    }
+}
+}  // namespace
+
 void begin() {
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
@@ -647,6 +755,8 @@ void begin() {
     hal::keyboardBegin();
     markStage('D');
     power::activity();
+    unlockAtBoot();
+    homePending = false;
     // Wi-Fi starts a few seconds after boot (see services()), once the UI is up.
 
     hal::display.fillScreen(theme::bg);

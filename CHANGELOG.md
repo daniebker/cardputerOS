@@ -4,6 +4,18 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Stored secrets are encrypted with a passphrase asked for at boot: Wi-Fi
+  passwords, SSH hosts and passwords, the Notes and Journal WebDAV passwords and
+  the SSH private key (AES-256-GCM, key wrapped with PBKDF2-SHA256). Existing
+  secrets are encrypted on the first start. Settings → Passphrase changes it;
+  Esc at the unlock prompt deletes the secrets if the passphrase is forgotten.
+- Brute force protection: after 3 wrong passphrases in a row, each further try
+  waits 30 seconds, doubling up to an hour. The count survives restarts.
+
 ## [0.7.1] - 2026-11-13
 
 ### Changed

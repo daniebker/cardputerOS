@@ -142,9 +142,13 @@ bool SshSession::authenticate(void* sessionPtr) {
     }
     const int methods = ssh_userauth_list(session, nullptr);
 
-    if (!cfg_.keyPath.empty() && (methods & SSH_AUTH_METHOD_PUBLICKEY)) {
+    if (!cfg_.keyText.empty() && (methods & SSH_AUTH_METHOD_PUBLICKEY)) {
         ssh_key pk = nullptr;
-        if (ssh_pki_import_privkey_file(cfg_.keyPath.c_str(), nullptr, nullptr, nullptr, &pk) == SSH_OK) {
+        const bool imported = ssh_pki_import_privkey_base64(cfg_.keyText.c_str(), nullptr, nullptr, nullptr, &pk) == SSH_OK;
+        // the decrypted key is not needed in text form any more
+        cfg_.keyText.assign(cfg_.keyText.size(), '\0');
+        cfg_.keyText.clear();
+        if (imported) {
             rc = ssh_userauth_publickey(session, nullptr, pk);
             ssh_key_free(pk);
             if (rc == SSH_AUTH_SUCCESS) {

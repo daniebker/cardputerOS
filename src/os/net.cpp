@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "secrets.h"
 #include "storage.h"
 
 namespace net {
@@ -25,7 +26,7 @@ std::string target;
 
 void load() {
     saved.clear();
-    std::string text = storage::getStr(kKey);
+    std::string text = secrets::get(kKey);
     for (auto& line : storage::splitLines(text)) {
         auto f = storage::splitFields(line);
         if (f.empty() || f[0].empty()) continue;
@@ -36,7 +37,7 @@ void load() {
 void save() {
     std::string text;
     for (auto& s : saved) text += s.ssid + "\t" + s.pass + "\n";
-    storage::putStr(kKey, text);
+    secrets::put(kKey, text);
 }
 
 const Saved* findSaved(const std::string& ssid) {

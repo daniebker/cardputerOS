@@ -9,6 +9,7 @@
 #include "../os/icons.h"
 #include "../os/net.h"
 #include "../os/power.h"
+#include "../os/secrets.h"
 #include "../os/storage.h"
 #include "../os/term_view.h"
 #include "../os/theme.h"
@@ -27,7 +28,7 @@ public:
 
 private:
     enum class Page { Main, Wifi };
-    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemDim, ItemSleep, ItemAbout };
+    enum Item { ItemWifi, ItemFlip, ItemFont, ItemTz, ItemDim, ItemSleep, ItemPassphrase, ItemAbout };
 
     static std::string tzText() {
         int m = storage::getInt("tz_min", 0);
@@ -48,6 +49,7 @@ private:
             main_.items.push_back({"Time zone", tzText(), 0});
             main_.items.push_back({"Dim screen on battery", minutesText(power::dimMinutes()), 0});
             main_.items.push_back({"Sleep on battery", minutesText(power::sleepMinutes()), 0});
+            main_.items.push_back({"Passphrase", secrets::unlocked() ? "change" : "not set", 0});
             main_.items.push_back({"About", "", 0});
             main_.draw(g, rect_);
         } else {
@@ -102,6 +104,9 @@ private:
                 if (v >= 0) power::setSleepMinutes(v);
                 break;
             }
+            case ItemPassphrase:
+                changePassphrase();
+                break;
             case ItemAbout: {
                 char buf[320];
                 snprintf(buf, sizeof buf, "cardputerOS %s\nIP: %s\nMAC: %s\nFree memory: %u KB\nStorage: %s\nLast boots: %s",
@@ -113,6 +118,40 @@ private:
             }
         }
         draw();
+    }
+
+    static void changePassphrase() {
+        if (!secrets::unlocked()) {
+            ui::alert("Passphrase", "Encryption is not set up. Restart the Cardputer to choose a passphrase.");
+            return;
+        }
+        if (const uint32_t s = secrets::waitSeconds()) {
+            ui::alert("Passphrase", "Too many wrong passphrases. Try again in " + waitText(s) + ".");
+            return;
+        }
+        std::string current, next;
+        if (!ui::prompt("Current passphrase", current, true)) return;
+        if (!secrets::askNewPassphrase("New passphrase", next)) {
+            current.assign(current.size(), '\0');
+            return;
+        }
+        ui::busy("Changing the passphrase...");
+        const bool ok = secrets::changePassphrase(current, next);
+        current.assign(current.size(), '\0');
+        next.assign(next.size(), '\0');
+        if (ok) {
+            ui::alert("Passphrase", "The passphrase was changed.");
+        } else {
+            const uint32_t s = secrets::waitSeconds();
+            ui::alert("Passphrase", "The current passphrase is wrong. Nothing was changed." +
+                                        (s ? "\nNext try in " + waitText(s) + "." : std::string()));
+        }
+    }
+
+    static std::string waitText(uint32_t s) {
+        char buf[16];
+        snprintf(buf, sizeof buf, "%u:%02u", (unsigned)(s / 60), (unsigned)(s % 60));
+        return buf;
     }
 
     static std::string minutesText(int m) { return m <= 0 ? "off" : "after " + std::to_string(m) + " min"; }
