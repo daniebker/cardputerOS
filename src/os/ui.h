@@ -14,6 +14,8 @@ struct ListItem {
     std::string label;
     std::string detail;       // right-aligned secondary text
     uint32_t color = 0;       // label colour, 0 = default
+    bool operator==(const ListItem& o) const { return label == o.label && detail == o.detail && color == o.color; }
+    bool operator!=(const ListItem& o) const { return !(*this == o); }
 };
 
 class List {
@@ -25,6 +27,9 @@ public:
     const char* emptyText = "(nothing here)";
 
     void draw(os::Gfx& g, const os::Rect& r);  // full repaint
+    // Replaces the items and the selection and repaints only the rows that changed
+    // (for lists that update while shown, without flicker).
+    void update(os::Gfx& g, const os::Rect& r, std::vector<ListItem> newItems, int newSelected);
     // Handles navigation keys and repaints what changed.
     Result onKey(os::Gfx& g, const os::Rect& r, const key::Event& ev);
     void clampSelection();

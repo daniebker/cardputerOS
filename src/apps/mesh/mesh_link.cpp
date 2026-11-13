@@ -2,6 +2,8 @@
 
 #include <NimBLEDevice.h>
 
+#include "../../os/bluetooth.h"
+
 namespace {
 const NimBLEUUID kService("6ba1b218-15a8-461f-9fa8-5dcae273eafd");
 const NimBLEUUID kToRadio("f75c76d2-129e-4dad-a1dd-7866124401e7");
@@ -23,9 +25,16 @@ ClientCallbacks callbacks;
 
 bool MeshLink::begin() {
     if (state_.load() != State::Off) return true;
+    if (!bt::claim("Mesh")) return false;
     pinSem_ = xSemaphoreCreateBinary();
     doneSem_ = xSemaphoreCreateBinary();
-    if (!pinSem_ || !doneSem_) return false;
+    if (!pinSem_ || !doneSem_) {
+        if (pinSem_) vSemaphoreDelete(pinSem_);
+        if (doneSem_) vSemaphoreDelete(doneSem_);
+        pinSem_ = doneSem_ = nullptr;
+        bt::release("Mesh");
+        return false;
+    }
     NimBLEDevice::init("cardputer");
     NimBLEDevice::setMTU(517);
     // bond, require a PIN where the node has one, secure connections
@@ -37,6 +46,7 @@ bool MeshLink::begin() {
     if (xTaskCreate(taskEntry, "mesh", 8192, this, 1, &task_) != pdPASS) {
         state_ = State::Off;
         NimBLEDevice::deinit(true);
+        bt::release("Mesh");
         return false;
     }
     return true;
@@ -53,6 +63,7 @@ void MeshLink::end() {
     if (doneSem_) vSemaphoreDelete(doneSem_);
     pinSem_ = doneSem_ = nullptr;
     state_ = State::Off;
+    bt::release("Mesh");
 }
 
 std::string MeshLink::takeError() {

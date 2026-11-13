@@ -18,6 +18,7 @@ struct Saved {
 std::vector<Saved> saved;
 bool scanning = false;
 bool userDisconnected = false;
+bool scansHeld = false;
 bool ntpStarted = false;
 uint32_t nextAttempt = 0;
 std::string target;
@@ -90,7 +91,7 @@ void tick() {
         startNtp();
         return;
     }
-    if (saved.empty() || userDisconnected || manualConnect) return;
+    if (saved.empty() || userDisconnected || manualConnect || scansHeld) return;
 
     if (scanning) {
         int n = WiFi.scanComplete();
@@ -132,9 +133,9 @@ std::string ip() { return connected() ? std::string(WiFi.localIP().toString().c_
 int rssi() { return connected() ? WiFi.RSSI() : 0; }
 
 std::vector<Network> scan() {
-    // let a background scan finish first
+    // let a background scan (ours or an app's) finish first
     uint32_t t0 = millis();
-    while (scanning && WiFi.scanComplete() == WIFI_SCAN_RUNNING && millis() - t0 < 8000) delay(50);
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && millis() - t0 < 8000) delay(50);
     scanning = false;
     WiFi.scanDelete();
 
@@ -194,6 +195,13 @@ bool connect(const std::string& ssidName, const std::string& pass, uint32_t time
     if (!found) saved.push_back({ssidName, pass});
     save();
     return true;
+}
+
+void holdScans(bool hold) {
+    scansHeld = hold;
+    // a scan of ours still running: its results now belong to whoever reads them
+    if (hold) scanning = false;
+    else nextAttempt = millis() + 1000;
 }
 
 bool isSaved(const std::string& name) { return findSaved(name) != nullptr; }

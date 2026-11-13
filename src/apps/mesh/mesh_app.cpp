@@ -3,10 +3,12 @@
 #include <esp_random.h>
 
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <string>
 #include <vector>
 
+#include "../../os/bluetooth.h"
 #include "../../os/icons.h"
 #include "../../os/kernel.h"
 #include "../../os/storage.h"
@@ -50,7 +52,12 @@ public:
             device_.addressType = (uint8_t)atoi(f[2].c_str());
             haveDevice_ = autoConnect_ = true;
         }
-        if (!link_.begin()) error_ = "Bluetooth could not be started (not enough memory?).";
+        if (!link_.begin()) {
+            const char* owner = bt::owner();
+            error_ = owner && strcmp(owner, "Mesh") != 0
+                         ? std::string("Bluetooth is in use by ") + owner + ". Close it and open Mesh again."
+                         : "Bluetooth could not be started (not enough memory?).";
+        }
     }
 
     ~MeshApp() override {

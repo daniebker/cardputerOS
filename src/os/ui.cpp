@@ -193,6 +193,42 @@ void List::draw(os::Gfx& g, const os::Rect& r) {
     g.endWrite();
 }
 
+void List::update(os::Gfx& g, const os::Rect& r, std::vector<ListItem> newItems, int newSelected) {
+    std::vector<ListItem> old;
+    old.swap(items);
+    items.swap(newItems);
+    const int oldSelected = selected;
+    selected = newSelected;
+    clampSelection();
+    const int rows = visibleRows(r);
+    int top = top_;
+    if (selected < top) top = selected;
+    if (selected >= top + rows) top = selected - rows + 1;
+    if (top > std::max(0, (int)items.size() - rows)) top = std::max(0, (int)items.size() - rows);
+    const bool moreAbove = top_ > 0, moreBelow = top_ + rows < (int)old.size();
+    const bool scrolled = top != top_ || old.empty() != items.empty() || moreAbove != (top > 0) ||
+                          moreBelow != (top + rows < (int)items.size());
+    if (scrolled) {
+        draw(g, r);
+        return;
+    }
+    g.startWrite();
+    for (int i = top_; i < top_ + rows; i++) {
+        const bool inOld = i < (int)old.size(), inNew = i < (int)items.size();
+        if (!inOld && !inNew) break;
+        const bool selMoved = oldSelected != selected && (i == selected || i == oldSelected);
+        if (inNew && inOld && old[i] == items[i] && !selMoved) continue;
+        if (inNew) drawRow(g, r, i);
+        else g.fillRect(r.x, r.y + (i - top_) * kRowH, r.w, kRowH, theme::bg);
+    }
+    if (top_ > 0) g.fillTriangle(r.x + r.w - 9, r.y + 6, r.x + r.w - 3, r.y + 6, r.x + r.w - 6, r.y + 2, theme::dim);
+    if (top_ + rows < (int)items.size()) {
+        const int by = r.y + rows * kRowH - 3;
+        g.fillTriangle(r.x + r.w - 9, by - 4, r.x + r.w - 3, by - 4, r.x + r.w - 6, by, theme::dim);
+    }
+    g.endWrite();
+}
+
 List::Result List::onKey(os::Gfx& g, const os::Rect& r, const key::Event& ev) {
     if (items.empty()) return None;
     const int rows = visibleRows(r);

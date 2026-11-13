@@ -21,6 +21,10 @@ std::string ssid();  // SSID we are connected (or connecting) to
 std::string ip();
 int rssi();
 
+// While held, the auto-connect logic starts no scans of its own (an app runs its
+// own scans, e.g. Wardrive). An existing connection is kept.
+void holdScans(bool hold);
+
 // Blocking scan (a few seconds). Strongest first, duplicates removed.
 std::vector<Network> scan();
 

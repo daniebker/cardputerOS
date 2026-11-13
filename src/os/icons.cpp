@@ -116,6 +116,22 @@ void journal(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     g.fillTriangle(rx, y + s / 3, rx + 6, y + s / 3, rx + 3, y + s / 3 - 4, fg);
 }
 
+void radar(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    // a radar screen: rings, a sweep and a few blips
+    const int cx = x + s / 2, cy = y + s / 2, r = s / 2 - 1;
+    g.fillCircle(cx, cy, r, dr::darkest);
+    g.drawCircle(cx, cy, r, fg);
+    g.drawCircle(cx, cy, r * 2 / 3, dr::currentLine);
+    g.drawCircle(cx, cy, r / 3, dr::currentLine);
+    g.drawFastHLine(cx - r + 2, cy, 2 * r - 3, dr::currentLine);
+    g.drawFastVLine(cx, cy - r + 2, 2 * r - 3, dr::currentLine);
+    g.fillArc(cx, cy, 0, r - 2, 290, 340, dr::comment);  // fading trail
+    g.fillArc(cx, cy, 0, r - 2, 330, 360, fg);           // the sweep
+    g.fillCircle(cx + r / 2, cy - r / 4, s / 22 + 1, dr::foreground);
+    g.fillCircle(cx - r / 3, cy - r / 2, s / 22 + 1, fg);
+    g.fillCircle(cx - r / 2, cy + r / 3, s / 22, fg);
+}
+
 void tiles(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     // a 2x2 board of number tiles
     const int gap = 4, t = (s - 3 * gap) / 2;

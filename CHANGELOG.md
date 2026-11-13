@@ -4,6 +4,20 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-11-13
+
+### Added
+
+- **Wardrive**: lists the Wi-Fi networks and Bluetooth LE devices around and
+  tracks every one seen in a session (signal, channel, security, manufacturer,
+  first and last seen). With a microSD card inserted, new devices are logged
+  to a WiGLE-format CSV file under `/cardputerOS/wardrive/` (no location, as
+  there is no GPS); without a card nothing is saved.
+
+### Changed
+
+- Mesh reports when Bluetooth is in use by another app instead of failing.
+
 ## [0.6.0] - 2026-11-13
 
 ### Added

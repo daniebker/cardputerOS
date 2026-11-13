@@ -236,6 +236,44 @@ close it from the home screen with `x` to let the device sleep again. Bluetooth,
 and an SSH session together use most of the memory, so close apps you are not using if
 something fails to connect.
 
+## Wardrive
+
+Launcher → **Wardrive**. Lists the Wi-Fi networks and Bluetooth LE devices around you
+and keeps track of every one seen since the app was opened. Scanning starts right away
+and continues while the app is in the background (the built-in screen shows the
+counts); it stops when the app is paused or closed.
+
+| Keys | Action |
+|------|--------|
+| Tab, left / right | Switch between the Wi-Fi and Bluetooth lists |
+| up / down | Move the selection (it follows its device when the list re-sorts) |
+| Enter | Details: BSSID / address, channel, security, manufacturer, signal, first and last seen |
+| `o` | Sort by signal (devices in range first), newest, or name |
+| Space | Pause / resume scanning |
+| `s` | SD card: show the log file, or try the card again |
+| `n` | New session: clear the lists and start a new log file |
+
+Devices seen in the last 30 seconds count as in range and show their signal in dBm;
+the others are grey and show how long ago they were last seen. Open Wi-Fi networks are
+green, WEP ones orange and hidden ones purple; Bluetooth devices that do not advertise
+a name are shown by manufacturer where it is known.
+
+**SD card log.** If a microSD card is inserted when the app starts (or when you press
+`s`), each device is written once per session to
+`/cardputerOS/wardrive/<date>-<time>.csv` (`session-NNNN.csv` while the clock is not
+set). The file is in [WiGLE](https://wigle.net) CSV format, so the usual wardriving
+tools can read it; as the Cardputer has no GPS, the location columns are 0, and the
+times are UTC and only filled in once the clock is set (Wi-Fi + NTP). New devices are
+written every 15 seconds and when you leave the app. Without a card nothing is saved:
+the lists simply show what is around. If the card is removed, logging stops (`SD
+ERROR`); put it back and press `s`, which writes all devices seen so far again.
+
+While Wardrive is scanning, the automatic Wi-Fi connect is paused (an existing
+connection is kept), and the app keeps the device awake. Bluetooth can only be used by
+one app at a time: if Mesh is open, Wardrive scans Wi-Fi only and picks up Bluetooth
+once Mesh is closed. Mesh, opened while Wardrive is running, asks you to close
+Wardrive first.
+
 ## Sudoku
 
 Launcher → **Games** → **Sudoku**. Every puzzle is generated on the device and has exactly one
@@ -314,7 +352,8 @@ lib/journal              journal file format and merging (portable, unit tested)
 lib/mesh                 Meshtastic client protocol and message store (portable, unit tested)
 lib/rogue                roguelike game rules (portable, unit tested with a bot player)
 lib/merge                sliding tile puzzle rules (portable, unit tested)
-src/apps                 apps: settings, ssh, notes, journal, mesh, sudoku, rogue, merge
+lib/wardrive             wardriving device table and WiGLE CSV log (portable, unit tested)
+src/apps                 apps: settings, ssh, notes, journal, mesh, wardrive, sudoku, rogue, merge
 test/                    host-side unit tests
 ```
 
