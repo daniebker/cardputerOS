@@ -22,7 +22,7 @@ if yours differs):
 | DC / RS     | 5              | G6   |
 | SDI (MOSI)  | 9              | G14  |
 | SCK         | 7              | G40  |
-| LED         | 6 (5VOUT), shared with VCC |      |
+| LED         | 12             | G13  |
 | SDO (MISO)  | not connected  |      |
 
 Power the display from **pin 6 (5VOUT)**, not pin 2 (5VIN): pin 2 is the Cardputer's
@@ -113,12 +113,13 @@ when no computer is connected over USB; a charger without data lines counts as b
   is not passed on to the app. Wi-Fi reconnects by itself. The device does not sleep
   while an SSH connection is open, because sleeping would drop it.
 
-The external display's backlight is the largest power draw, and with its LED pin wired
-to 5VOUT the firmware cannot dim it or switch it off: in sleep the screen is black but
-still lit. To let the firmware control it, connect the display's LED pin to a free GPIO
-instead (for example G13) and set `EXT_TFT_BL` in `include/board_config.h` to that pin.
-Only do this if the display board has a backlight transistor (most 2.8" ILI9341 boards
-do); without one the backlight draws more current than a GPIO should supply.
+The external display's backlight is the largest power draw. With its LED pin on G13
+(pin 12) the firmware dims it together with the built-in screen and switches it off in
+sleep. This needs a display board with a backlight transistor (most 2.8" ILI9341 boards
+have one); without one the backlight draws more current than a GPIO should supply. If
+your LED pin is instead tied to 5VOUT (pin 6), the backlight is always on: in sleep the
+screen is black but still lit. Set `EXT_TFT_BL` in `include/board_config.h` to -1 in
+that case, or to another free GPIO if you wired it elsewhere.
 
 ## SSH
 

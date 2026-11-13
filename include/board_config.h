@@ -10,7 +10,8 @@
 //   DC / RS       pin 5            G6
 //   SDI (MOSI)    pin 9            G14
 //   SCK           pin 7            G40
-//   LED           pin 6  (5VOUT)   -      (shared with VCC; backlight always on)
+//   LED           pin 12           G13    (backlight on / off / dimming; or pin 6 5VOUT
+//                                          for always on, then set EXT_TFT_BL to -1)
 //   SDO (MISO)    not connected           (optional: G39)
 //
 // (Signal pins as in github.com/AndyAiCardputer/zx-spectrum-cardputer-ili9341.)
@@ -26,7 +27,7 @@
 #define EXT_TFT_CS 5
 #define EXT_TFT_DC 6
 #define EXT_TFT_RST 3
-#define EXT_TFT_BL -1  // GPIO driving the LED pin, or -1 if it is tied to a supply rail
+#define EXT_TFT_BL 13  // GPIO driving the LED pin, or -1 if it is tied to a supply rail
 
 // SPI clock. 40 MHz is fine with short wires; drop to 27000000 or 20000000 if
 // the picture shows noise or random pixels.

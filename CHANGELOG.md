@@ -4,6 +4,14 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The external display's backlight is now driven by G13 (EXT pin 12) by default,
+  so it dims and switches off in sleep. Move the display's LED wire from 5VOUT to
+  pin 12 to use this.
+
 ## [0.7.0] - 2026-11-13
 
 ### Added
