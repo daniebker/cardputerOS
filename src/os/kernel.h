@@ -6,7 +6,7 @@
 
 namespace os {
 
-constexpr const char* kVersion = "0.8.0";
+constexpr const char* kVersion = "0.9.0";
 
 void begin();
 void loopOnce();

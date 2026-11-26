@@ -100,13 +100,46 @@ bool DavClient::connect(std::string& err) {
 
 bool DavClient::request(const char* method, const std::string& path, const std::vector<Header>& headers,
                         const std::string& body, dav::HttpResponse& resp, std::string& err, const dav::SinkFn& sink) {
+    return send(method, path, headers, body.size(),
+                [&body](Client* c) {
+                    return body.empty() || c->write((const uint8_t*)body.data(), body.size()) == body.size();
+                },
+                resp, err, sink);
+}
+
+bool DavClient::request(const char* method, const std::string& path, const std::vector<Header>& headers,
+                        const BodySource& body, dav::HttpResponse& resp, std::string& err, const dav::SinkFn& sink) {
+    return send(method, path, headers, body.size,
+                [&body](Client* c) {
+                    if (body.rewind && !body.rewind()) return false;
+                    uint8_t buf[1024];
+                    size_t left = body.size;
+                    while (left > 0) {
+                        const int n = body.read(buf, std::min(left, sizeof buf));
+                        if (n <= 0) return false;
+                        size_t off = 0;
+                        while (off < (size_t)n) {
+                            const size_t w = c->write(buf + off, (size_t)n - off);
+                            if (w == 0) return false;
+                            off += w;
+                        }
+                        left -= (size_t)n;
+                    }
+                    return true;
+                },
+                resp, err, sink);
+}
+
+bool DavClient::send(const char* method, const std::string& path, const std::vector<Header>& headers, size_t bodyLen,
+                     const std::function<bool(Client*)>& writeBody, dav::HttpResponse& resp, std::string& err,
+                     const dav::SinkFn& sink) {
     std::string head = std::string(method) + " " + path + " HTTP/1.1\r\nHost: " + url_.host;
     if (url_.port != (url_.https ? 443 : 80)) head += ":" + std::to_string(url_.port);
-    head += "\r\nUser-Agent: cardputerOS-notes\r\nAccept: */*\r\nConnection: keep-alive\r\n";
+    head += "\r\nUser-Agent: cardputerOS\r\nAccept: */*\r\nConnection: keep-alive\r\n";
     if (!auth_.empty()) head += "Authorization: " + auth_ + "\r\n";
     for (auto& h : headers) head += std::string(h.name) + ": " + h.value + "\r\n";
-    const bool hasBody = !body.empty() || !strcmp(method, "PUT") || !strcmp(method, "REPORT") || !strcmp(method, "PROPFIND");
-    if (hasBody) head += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    const bool hasBody = bodyLen > 0 || !strcmp(method, "PUT") || !strcmp(method, "REPORT") || !strcmp(method, "PROPFIND");
+    if (hasBody) head += "Content-Length: " + std::to_string(bodyLen) + "\r\n";
     head += "\r\n";
 
     // A kept-alive connection may have been closed by the server in the meantime: retry once.
@@ -115,7 +148,7 @@ bool DavClient::request(const char* method, const std::string& path, const std::
         if (!reused && !connect(err)) return false;
 
         bool sent = conn_->write((const uint8_t*)head.data(), head.size()) == head.size();
-        if (sent && !body.empty()) sent = conn_->write((const uint8_t*)body.data(), body.size()) == body.size();
+        if (sent) sent = writeBody(conn_);
 
         size_t received = 0;
         bool ok = false;
