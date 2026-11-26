@@ -37,6 +37,7 @@ TasksAccount TasksAccount::load() {
 }
 
 void TasksAccount::save() const {
+    if (url != storage::getStr("mw_url")) storage::putInt("mw_ifmatch", 1);  // a new server: try again
     storage::putStr("mw_url", url);
     storage::putStr("mw_user", user);
     secrets::put("mw_pass", pass);
@@ -118,6 +119,10 @@ struct Sync {
     }
 
     bool upload() {
+        // Some servers fail every conditional upload (weak ETags, or ETags changed by
+        // compression), which would make every upload look like a conflict. That is
+        // detected below and remembered for the account.
+        bool useIfMatch = storage::getInt("mw_ifmatch", 1) != 0;
         for (int attempt = 0; attempt < 3; attempt++) {
             const int count = store.pendingCount();
             progress("Uploading " + std::to_string(count) + (count == 1 ? " change..." : " changes..."));
@@ -131,7 +136,9 @@ struct Sync {
             body.rewind = [&f]() { return f.seek(0); };
             body.read = [&f](uint8_t* buf, size_t max) { return (int)f.read(buf, max); };
             std::vector<DavClient::Header> h = {{"Content-Type", "application/json"}};
-            if (!store.etag().empty()) h.push_back({"If-Match", store.etag()});
+            const std::string etag = store.etag();
+            const bool conditional = useIfMatch && !etag.empty() && etag.compare(0, 2, "W/") != 0;
+            if (conditional) h.push_back({"If-Match", etag});
             dav::HttpResponse r;
             std::string err;
             const bool ok = client.request("PUT", href(), h, body, r, err);
@@ -140,10 +147,16 @@ struct Sync {
                 sd().remove(kUpload);
                 return fail(err);
             }
-            if (r.status == 412) {
+            if (r.status == 412 && conditional) {
                 // changed on the server since we downloaded it: get it and replay the edits
                 sd().remove(kUpload);
                 if (!download(false)) return false;
+                if (store.etag() == etag || attempt == 1) {
+                    // Same version as before (or refused twice in a row): the server does not
+                    // honour If-Match. The copy was just downloaded, so upload it without.
+                    useIfMatch = false;
+                    storage::putInt("mw_ifmatch", 0);
+                }
                 continue;
             }
             if (r.status < 200 || r.status >= 300) {

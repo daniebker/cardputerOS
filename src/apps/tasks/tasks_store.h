@@ -58,6 +58,7 @@ private:
     bool index(const char* path, std::vector<mindwtr::TaskRow>& tasks, std::vector<mindwtr::Project>& projects,
                json::ElementScanner::ArrayInfo& tasksArray, std::string& err) const;
     void applyPending();
+    void trimDone(std::vector<mindwtr::TaskRow>& tasks) const;
     bool readBase(const mindwtr::TaskRow& t, json::Value& out) const;
     mindwtr::Patch* pendingFor(const std::string& id);
     const mindwtr::Patch* pendingFor(const std::string& id) const;

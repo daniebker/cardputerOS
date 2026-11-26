@@ -44,6 +44,29 @@ bool writeText(const char* path, const std::string& data) {
 
 const char* TasksStore::kDir = "/cardputerOS/tasks";
 
+// Keeps only the kMaxDone most recently completed done tasks (and any with pending edits).
+void TasksStore::trimDone(std::vector<mindwtr::TaskRow>& tasks) const {
+    std::vector<int64_t> doneKeys;
+    for (auto& t : tasks)
+        if (t.status == "done" && !pendingFor(t.id)) doneKeys.push_back(t.completedKey);
+    if (doneKeys.size() <= kMaxDone) return;
+    std::nth_element(doneKeys.begin(), doneKeys.begin() + (doneKeys.size() - kMaxDone), doneKeys.end());
+    const int64_t cutoff = doneKeys[doneKeys.size() - kMaxDone];
+    size_t dropAtCutoff = std::count(doneKeys.begin(), doneKeys.end(), cutoff) -
+                          std::count(doneKeys.end() - kMaxDone, doneKeys.end(), cutoff);
+    tasks.erase(std::remove_if(tasks.begin(), tasks.end(),
+                               [&](const mindwtr::TaskRow& t) {
+                                   if (t.status != "done" || pendingFor(t.id)) return false;
+                                   if (t.completedKey < cutoff) return true;
+                                   if (t.completedKey == cutoff && dropAtCutoff) {
+                                       dropAtCutoff--;
+                                       return true;
+                                   }
+                                   return false;
+                               }),
+                tasks.end());
+}
+
 bool TasksStore::index(const char* path, std::vector<mindwtr::TaskRow>& tasks, std::vector<mindwtr::Project>& projects,
                        json::ElementScanner::ArrayInfo& tasksArray, std::string& err) const {
     tasks.clear();
@@ -53,6 +76,7 @@ bool TasksStore::index(const char* path, std::vector<mindwtr::TaskRow>& tasks, s
         err = "Could not open the task file on the SD card.";
         return false;
     }
+    size_t doneSeen = 0;
     json::ElementScanner scanner(
         {"tasks", "projects"}, [&](const std::string& key, size_t start, size_t end, const std::string& text, bool truncated) {
             if (truncated) return;  // a single task over 32 KB: left alone
@@ -64,6 +88,10 @@ bool TasksStore::index(const char* path, std::vector<mindwtr::TaskRow>& tasks, s
                 if (t.status == "archived" && !pendingFor(t.id)) return;  // never shown
                 t.start = (uint32_t)start;
                 t.end = (uint32_t)end;
+                if (t.status == "done" && ++doneSeen > 2 * kMaxDone) {
+                    trimDone(tasks);  // bound memory while scanning a long history
+                    doneSeen = kMaxDone;
+                }
                 tasks.push_back(std::move(t));
             } else {
                 mindwtr::Project p;
@@ -81,27 +109,7 @@ bool TasksStore::index(const char* path, std::vector<mindwtr::TaskRow>& tasks, s
         err = "The file is not a Mindwtr data file (or it is encrypted: end-to-end encrypted sync is not supported).";
         return false;
     }
-    // keep only the most recently completed done tasks
-    std::vector<int64_t> doneKeys;
-    for (auto& t : tasks)
-        if (t.status == "done" && !pendingFor(t.id)) doneKeys.push_back(t.completedKey);
-    if (doneKeys.size() > kMaxDone) {
-        std::nth_element(doneKeys.begin(), doneKeys.begin() + (doneKeys.size() - kMaxDone), doneKeys.end());
-        const int64_t cutoff = doneKeys[doneKeys.size() - kMaxDone];
-        size_t dropAtCutoff = std::count(doneKeys.begin(), doneKeys.end(), cutoff) -
-                              std::count(doneKeys.end() - kMaxDone, doneKeys.end(), cutoff);
-        tasks.erase(std::remove_if(tasks.begin(), tasks.end(),
-                                   [&](const mindwtr::TaskRow& t) {
-                                       if (t.status != "done" || pendingFor(t.id)) return false;
-                                       if (t.completedKey < cutoff) return true;
-                                       if (t.completedKey == cutoff && dropAtCutoff) {
-                                           dropAtCutoff--;
-                                           return true;
-                                       }
-                                       return false;
-                                   }),
-                    tasks.end());
-    }
+    trimDone(tasks);
     tasks.shrink_to_fit();
     tasksArray = scanner.array("tasks");
     if (!tasksArray.found) {
@@ -171,6 +179,7 @@ const mindwtr::Patch* TasksStore::pendingFor(const std::string& id) const {
 
 // Brings the summaries up to date with the pending edits.
 void TasksStore::applyPending() {
+    tasks_.reserve(tasks_.size() + pending_.size());
     for (auto& p : pending_) {
         auto it = std::find_if(tasks_.begin(), tasks_.end(), [&](const mindwtr::TaskRow& t) { return t.id == p.id; });
         json::Value v;
@@ -265,11 +274,21 @@ bool TasksStore::adoptDownload(const char* path, const std::string& etag, std::s
         err = kNoCard;
         return false;
     }
-    std::vector<mindwtr::TaskRow> tasks;
-    std::vector<mindwtr::Project> projects;
+    // Free the current list first: holding the old and the new one at the same time
+    // (next to the TLS connection) can run out of memory with a large library.
+    std::vector<mindwtr::TaskRow>().swap(tasks_);
+    std::vector<mindwtr::Project>().swap(projects_);
     json::ElementScanner::ArrayInfo arr;
-    if (!index(path, tasks, projects, arr, err)) {
+    if (!index(path, tasks_, projects_, arr, err)) {
         sd().remove(path);
+        // back to the copy we had
+        std::string ignored;
+        if (!hasData_ || !index(kBase, tasks_, projects_, tasksArray_, ignored)) {
+            hasData_ = false;
+            tasks_.clear();
+            projects_.clear();
+        }
+        applyPending();
         return false;
     }
     if (sd().exists(kBase)) sd().remove(kBase);
@@ -277,10 +296,10 @@ bool TasksStore::adoptDownload(const char* path, const std::string& etag, std::s
         err = "Could not write to the SD card (full?).";
         hasData_ = false;
         tasks_.clear();
+        projects_.clear();
+        applyPending();
         return false;
     }
-    tasks_.swap(tasks);
-    projects_.swap(projects);
     tasksArray_ = arr;
     hasData_ = true;
     etag_ = etag;
