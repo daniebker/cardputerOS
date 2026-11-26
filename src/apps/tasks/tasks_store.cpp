@@ -330,23 +330,36 @@ bool TasksStore::buildUpload(const char* path, const std::string& deviceId, size
         err = "Could not write to the SD card (full?).";
         return false;
     }
-    size = json::splicedSize(src.size(), splices);
+    const size_t srcSize = src.size();
+    size = json::splicedSize(srcSize, splices);
     bool writeOk = true;
+    // Counted here: File::size() of a file being written does not include data
+    // still in the write buffer.
+    size_t read = 0, written = 0;
     {
         json::Splicer splicer(std::move(splices), [&](const char* d, size_t n) {
-            if (writeOk && dst.write((const uint8_t*)d, n) != n) writeOk = false;
+            if (!writeOk) return;
+            const size_t w = dst.write((const uint8_t*)d, n);
+            written += w;
+            if (w != n) writeOk = false;
         });
         static char buf[1024];
         for (;;) {
             const int n = src.read((uint8_t*)buf, sizeof buf);
             if (n <= 0) break;
+            read += (size_t)n;
             splicer.feed(buf, (size_t)n);
         }
         splicer.finish();
     }
     src.close();
-    const size_t written = dst.size();
+    dst.flush();
     dst.close();
+    if (read != srcSize) {
+        sd().remove(path);
+        err = "Could not read the task file on the SD card.";
+        return false;
+    }
     if (!writeOk || written != size) {
         sd().remove(path);
         err = "Could not write to the SD card (full?).";
