@@ -31,6 +31,10 @@ std::vector<Network> scan();
 // Blocking connect (up to timeoutMs). `idle` is called while waiting.
 // On success the credentials are saved for auto-connect.
 bool connect(const std::string& ssid, const std::string& pass, uint32_t timeoutMs, void (*idle)() = nullptr);
+// Blocking: connects to the strongest saved network in range now, unless already
+// connected (also after a manual disconnect). Waits up to timeoutMs; `idle` is
+// called while waiting. False if no saved network could be joined.
+bool connectSaved(uint32_t timeoutMs, void (*idle)() = nullptr);
 bool isSaved(const std::string& ssid);
 bool savedPassword(const std::string& ssid, std::string& pass);
 void forget(const std::string& ssid);

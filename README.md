@@ -237,8 +237,15 @@ and the stored password work as described for Notes.
 
 Launcher → **Tasks**. Shows and edits the tasks of a [Mindwtr](https://mindwtr.app)
 library. Mindwtr's WebDAV sync keeps everything in one `data.json` file in a WebDAV
-folder; this app downloads that file when it opens (as soon as Wi-Fi is up), and writes
-your changes back to it, so they show up in Mindwtr after its next sync.
+folder. Each time you open the app it connects to a saved Wi-Fi network (if it is not
+connected yet) and syncs: it downloads that file and writes your changes back to it, so
+they show up in Mindwtr after its next sync. If no saved network is in range, the app
+works offline and syncs as soon as Wi-Fi is back.
+
+The app needs a **microSD card**: the downloaded file and your unsynced changes are kept
+in `/cardputerOS/tasks/` on the card. Only the sync settings stay on the device (the
+password encrypted, like the other secrets). Without a card the app asks you to insert
+one; `r` tries again. Do not pull the card while the app shows "Please wait".
 
 1. In Mindwtr, set up **WebDAV sync** and sync once, so the folder has a `data.json`.
 2. In Tasks press `opt`+`a` and enter the same folder address (e.g.
@@ -256,7 +263,7 @@ your changes back to it, so they show up in Mindwtr after its next sync.
 | `d` | Set the due date |
 | `s` | Set the status (inbox, next, waiting, someday, reference, done, archived) |
 | `fn`+Backspace (Delete) | Delete (moves it to Mindwtr's trash) |
-| `r` or `opt`+`s` | Sync now |
+| `r` or `opt`+`s` | Sync now (connects to Wi-Fi first if needed) |
 | `opt`+`a` | Set the WebDAV folder |
 
 In a task, Enter changes the selected field and Esc or Backspace goes back. Dates can be

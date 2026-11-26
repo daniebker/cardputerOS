@@ -12,8 +12,10 @@ project uses [Semantic Versioning](https://semver.org/).
   in Mindwtr's WebDAV folder. Downloaded when the app opens; views for focus,
   inbox, next, waiting, someday, all and done tasks; add tasks, edit the title,
   status, due and start dates, project, contexts, tags, notes and checklist,
-  mark tasks done and delete them. Changes are uploaded a few seconds later
-  (or at the next sync when offline) and merged with changes made elsewhere.
+  mark tasks done and delete them. Opening the app connects to a saved Wi-Fi
+  network and syncs. Changes are uploaded a few seconds later (or at the next
+  sync when offline) and merged with changes made elsewhere. The data is kept
+  on the microSD card (`/cardputerOS/tasks/`).
 
 ## [0.8.0] - 2026-11-13
 

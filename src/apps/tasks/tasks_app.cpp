@@ -147,29 +147,35 @@ std::vector<std::string> wrapText(os::Gfx& g, const std::string& text, int maxW,
 class TasksApp : public os::App {
 public:
     void onStart() override {
-        std::string err;
-        if (!store_.load(err)) loadError_ = err;
         account_ = TasksAccount::load();
         device_ = deviceId();
-        rebuild();
+        loadStore(false);
     }
 
+    // Opening the app (from the home screen, or waking up with it in front):
+    // connect to Wi-Fi and sync.
     void onResume() override {
         redraw();
+        if (!store_.ready()) loadStore(true);
         if (!loadError_.empty()) {
-            ui::alert("Tasks", loadError_ + "\nIt will be downloaded again at the next sync.");
+            ui::alert("Tasks", loadError_);
             loadError_.clear();
             redraw();
         }
-        maybeAutoSync();
+        if (opening_) {
+            opening_ = false;
+            openSync();
+        }
     }
 
     void onPause() override {
+        opening_ = true;
         if (store_.pendingCount() && account_.configured() && net::connected()) sync(false, false);
     }
 
     void onTick() override {
-        maybeAutoSync();
+        // Wi-Fi came up later than the app was opened
+        if (syncDue_ && account_.configured() && net::connected()) sync(false, true);
         if (changedAt_ && millis() - changedAt_ > kAutoUploadMs) {
             changedAt_ = 0;
             if (store_.pendingCount() && account_.configured() && net::connected()) sync(false, true);
@@ -260,7 +266,8 @@ private:
         list_.items.swap(items);
         list_.selected = sel;
         list_.clampSelection();
-        if (!account_.configured() && store_.tasks().empty()) list_.emptyText = "Not set up: press opt+a";
+        if (!store_.ready()) list_.emptyText = "Insert a microSD card (r: retry)";
+        else if (!account_.configured() && store_.tasks().empty()) list_.emptyText = "Not set up: press opt+a";
         else if (!store_.hasData() && store_.tasks().empty()) list_.emptyText = "Not downloaded yet (opt+s to sync)";
         else list_.emptyText = "No tasks here";
     }
@@ -400,6 +407,12 @@ private:
     // ------------------------------------------------------------ editing
 
     bool canEdit() {
+        if (!store_.ready()) loadStore(true);
+        if (!store_.ready()) {
+            ui::alert("Tasks", "No microSD card. Tasks keeps its data on the card: insert one and try again.");
+            redraw();
+            return false;
+        }
         if (clockValid()) return true;
         ui::alert("Tasks", "The clock is not set yet. Connect to Wi-Fi once so changes get the right time.");
         redraw();
@@ -408,7 +421,7 @@ private:
 
     // Records an edit and schedules the upload.
     void apply(const std::string& id, const std::function<void(mindwtr::Patch&, const json::Value&)>& fn) {
-        if (!store_.edit(id, nowIso(), fn)) ui::alert("Tasks", "Could not save the change (storage full?).");
+        if (!store_.edit(id, nowIso(), fn)) ui::alert("Tasks", "Could not save the change (SD card missing or full?).");
         changed();
     }
 
@@ -587,7 +600,7 @@ private:
             const json::Value* done = item.get("isCompleted");
             item.set("isCompleted", json::Value::boolean(!(done && done->type == json::Value::Bool && done->b)));
             if (!store_.edit(id, nowIso(), [&](mindwtr::Patch& p, const json::Value&) { p.setField("checklist", updated); })) {
-                ui::alert("Tasks", "Could not save the change (storage full?).");
+                ui::alert("Tasks", "Could not save the change (SD card missing or full?).");
                 break;
             }
             changedAt_ = millis() | 1;
@@ -638,7 +651,7 @@ private:
         mindwtr::Patch p = mindwtr::newTask(id, title, kNewStatus[filter_], now);
         if (!contexts.empty()) p.set.set("contexts", stringArray(contexts));
         if (!tags.empty()) p.set.set("tags", stringArray(tags));
-        if (!store_.add(p)) ui::alert("Tasks", "Could not save the task (storage full?).");
+        if (!store_.add(p)) ui::alert("Tasks", "Could not save the task (SD card missing or full?).");
         if (filter_ == DoneF) filter_ = Inbox;
         // select the new task
         rebuild();
@@ -649,11 +662,30 @@ private:
 
     // ------------------------------------------------------------ sync
 
-    void maybeAutoSync() {
-        if (!autoSynced_ && account_.configured() && net::connected()) {
-            autoSynced_ = true;
-            sync(false, true);
+    // Reads the files on the SD card. `quiet`: no message if the card is missing.
+    void loadStore(bool quiet) {
+        std::string err;
+        if (!store_.load(err) && !(quiet && !store_.ready())) loadError_ = err;
+        if (store_.ready() && !loadError_.empty()) loadError_ += "\nIt will be downloaded again at the next sync.";
+        rebuild();
+    }
+
+    void openSync() {
+        if (!account_.configured()) return;
+        syncDue_ = true;
+        if (!net::connected()) {
+            ui::busy("Connecting to Wi-Fi...");
+            if (!net::connectSaved(20000, os::idle)) {
+                syncInfo_ = "offline";
+                os::refreshStatus();
+                redraw();
+                return;  // synced as soon as Wi-Fi is up (onTick)
+            }
         }
+        // edits need the clock: it is set from the network right after connecting
+        const uint32_t t0 = millis();
+        while (!clockValid() && millis() - t0 < 3000) os::idle();
+        sync(false, true);
     }
 
     void setupAccount() {
@@ -687,6 +719,18 @@ private:
 
     // interactive: the user asked, so explain problems. mayAsk: dialogs are allowed.
     void sync(bool interactive, bool mayAsk) {
+        syncDue_ = false;
+        if (!store_.ready()) loadStore(true);
+        if (!store_.ready()) {
+            syncInfo_ = "no SD card";
+            if (interactive) ui::alert("Tasks", "No microSD card. Tasks keeps its data on the card: insert one and try again.");
+            if (interactive || mayAsk) redraw();
+            return;
+        }
+        if (interactive && account_.configured() && !net::connected()) {
+            ui::busy("Connecting to Wi-Fi...");
+            net::connectSaved(20000, os::idle);
+        }
         if (!account_.configured() || !net::connected()) {
             if (interactive) {
                 ui::alert("Tasks", !account_.configured() ? "No Mindwtr folder yet. Press opt+a to set it up."
@@ -742,7 +786,8 @@ private:
             detailId_.clear();
         }
         std::string title = "Tasks";
-        if (!account_.configured()) title += "   - not set up";
+        if (!store_.ready()) title += "   - no SD card";
+        else if (!account_.configured()) title += "   - not set up";
         else if (store_.pendingCount()) title += "   - " + std::to_string(store_.pendingCount()) + " not synced";
         else if (!syncInfo_.empty()) title += "   - " + syncInfo_;
         os::Rect body = ui::header(g, c, title.c_str());
@@ -792,7 +837,8 @@ private:
     os::Rect listRect_{0, 0, 0, 0}, detailRect_{0, 0, 0, 0};
     int filter_ = Focus;
     uint32_t changedAt_ = 0;
-    bool autoSynced_ = false;
+    bool opening_ = true;   // the next onResume is an opening of the app
+    bool syncDue_ = false;  // opened without Wi-Fi: sync once it is connected
 };
 
 OS_REGISTER_APP(TasksApp, "Tasks", "Mindwtr tasks, WebDAV sync", theme::dracula::green, icons::checklist, 21);

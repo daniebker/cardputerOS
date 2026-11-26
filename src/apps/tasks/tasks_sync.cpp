@@ -1,13 +1,13 @@
 #include "tasks_sync.h"
 
-#include <LittleFS.h>
-
+#include "../../hal/sdcard.h"
 #include "../../os/secrets.h"
 #include "../../os/storage.h"
 
 namespace {
-const char* kDownload = "/tasks/download.tmp";
-const char* kUpload = "/tasks/upload.tmp";
+const char* kDownload = "/cardputerOS/tasks/download.tmp";
+const char* kUpload = "/cardputerOS/tasks/upload.tmp";
+fs::FS& sd() { return hal::sdFs(); }
 
 std::string httpError(const char* what, const dav::HttpResponse& r) {
     std::string msg;
@@ -78,8 +78,8 @@ struct Sync {
         progress("Downloading tasks...");
         std::vector<DavClient::Header> h;
         if (conditional && store.hasData() && !store.etag().empty()) h.push_back({"If-None-Match", store.etag()});
-        File f = LittleFS.open(kDownload, "w");
-        if (!f) return fail("Could not write to local storage (full?).");
+        File f = sd().open(kDownload, "w");
+        if (!f) return fail("Could not write to the SD card (full?).");
         bool writeOk = true;
         size_t total = 0;
         std::string head;  // start of the body, for error messages
@@ -93,23 +93,23 @@ struct Sync {
         f.close();
         r.body = head;
         if (!ok) {
-            LittleFS.remove(kDownload);
+            sd().remove(kDownload);
             return fail(err);
         }
         if (r.status == 304) {
-            LittleFS.remove(kDownload);
+            sd().remove(kDownload);
             return true;
         }
         if (r.status != 200) {
-            LittleFS.remove(kDownload);
+            sd().remove(kDownload);
             if (r.status == 404)
                 return fail("There is no " + fileName + " in this folder yet. Set up WebDAV sync in Mindwtr with "
                             "the same folder and sync once, then try again.");
             return fail(httpError("Download", r));
         }
         if (!writeOk) {
-            LittleFS.remove(kDownload);
-            return fail("Not enough room on the device for the task file (" + std::to_string(total / 1024) + " KB).");
+            sd().remove(kDownload);
+            return fail("Could not save the task file on the SD card (" + std::to_string(total / 1024) + " KB; card full?).");
         }
         std::string e;
         if (!store.adoptDownload(kDownload, r.etag, e)) return fail(e);
@@ -124,8 +124,8 @@ struct Sync {
             size_t size = 0;
             std::string e;
             if (!store.buildUpload(kUpload, deviceId, size, e)) return fail(e);
-            File f = LittleFS.open(kUpload, "r");
-            if (!f) return fail("Could not read the local task file.");
+            File f = sd().open(kUpload, "r");
+            if (!f) return fail("Could not read the task file on the SD card.");
             DavClient::BodySource body;
             body.size = size;
             body.rewind = [&f]() { return f.seek(0); };
@@ -137,17 +137,17 @@ struct Sync {
             const bool ok = client.request("PUT", href(), h, body, r, err);
             f.close();
             if (!ok) {
-                LittleFS.remove(kUpload);
+                sd().remove(kUpload);
                 return fail(err);
             }
             if (r.status == 412) {
                 // changed on the server since we downloaded it: get it and replay the edits
-                LittleFS.remove(kUpload);
+                sd().remove(kUpload);
                 if (!download(false)) return false;
                 continue;
             }
             if (r.status < 200 || r.status >= 300) {
-                LittleFS.remove(kUpload);
+                sd().remove(kUpload);
                 return fail(httpError("Upload", r));
             }
             if (!store.uploaded(kUpload, r.etag, e)) return fail(e);
@@ -165,6 +165,11 @@ TasksSyncResult syncTasks(TasksStore& store, const TasksAccount& account, const 
     DavClient client;
     client.onCert = onCert;
     Sync s(store, client, progress);
+    hal::SdSession session;  // the card stays mounted for the whole sync
+    if (!session.ok() || !hal::sdMakeDirs(TasksStore::kDir)) {
+        s.result.error = "No microSD card. Tasks keeps its data on the card: insert one and try again.";
+        return s.result;
+    }
     std::string folder;
     account.split(folder, s.fileName);
     std::string err;

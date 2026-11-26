@@ -1,9 +1,9 @@
 // Local copy of the Mindwtr sync file and the edits made on the device.
 //
-// The last downloaded data.json is kept as it is on internal storage
-// (/tasks/data.json) and never loaded into memory as a whole: only a short
+// The last downloaded data.json is kept as it is on the microSD card
+// (/cardputerOS/tasks/data.json) and never loaded into memory as a whole: only a short
 // summary of each task is. Edits are recorded as field-level patches
-// (/tasks/pending.json) and replayed on top of the newest server copy when
+// (pending.json next to it) and replayed on top of the newest server copy when
 // uploading, so everything else in the file (projects, settings, fields this
 // app does not know) is passed through untouched.
 //
@@ -19,10 +19,14 @@
 
 class TasksStore {
 public:
+    static const char* kDir;  // folder on the microSD card holding everything
+
     // Reads the cached file and the pending edits. False (with err) if the cached
     // file is unreadable; there may simply be none yet (hasData() false).
     bool load(std::string& err);
     bool hasData() const { return hasData_; }
+    // load() found the SD card (false: no card, nothing loaded; call load() again).
+    bool ready() const { return ready_; }
 
     const std::vector<mindwtr::TaskRow>& tasks() const { return tasks_; }
     const std::vector<mindwtr::Project>& projects() const { return projects_; }
@@ -66,4 +70,5 @@ private:
     json::ElementScanner::ArrayInfo tasksArray_;
     std::string etag_;
     bool hasData_ = false;
+    bool ready_ = false;
 };

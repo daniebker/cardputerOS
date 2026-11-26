@@ -9,19 +9,43 @@ namespace hal {
 
 namespace {
 
+int mounts = 0;  // open mounts (sessions and one-shot operations)
+
 bool mount() {
+    if (mounts > 0) {
+        mounts++;
+        return true;
+    }
     // The display driver already started the shared bus as the Arduino SPI object.
-    if (SD.begin(SD_CS_PIN, SPI, 20000000, "/sd", 2)) return true;
+    if (SD.begin(SD_CS_PIN, SPI, 20000000, "/sd", 2)) {
+        mounts = 1;
+        return true;
+    }
     SD.end();
     digitalWrite(SD_CS_PIN, HIGH);
     return false;
 }
 
 void unmount() {
+    if (mounts <= 0 || --mounts > 0) return;
     SD.end();  // unmount so the card can be removed at any time
     digitalWrite(SD_CS_PIN, HIGH);
 }
 
+// Creates every folder on the way to the file `path`.
+bool makeParents(const char* path);
+}  // namespace
+
+SdSession::SdSession() : ok_(mount()) {}
+SdSession::~SdSession() {
+    if (ok_) unmount();
+}
+
+fs::FS& sdFs() { return SD; }
+
+bool sdMakeDirs(const char* dir) { return makeParents((std::string(dir) + "/").c_str()); }
+
+namespace {
 // Creates every folder on the way to the file `path`.
 bool makeParents(const char* path) {
     const std::string p(path);
