@@ -114,8 +114,9 @@ private:
         bool origin = false;
     };
 
-    Cell* row(int y) { return &screen_[(size_t)y * cols_]; }
-    const Cell* row(int y) const { return &screen_[(size_t)y * cols_]; }
+    // y may be rows_ (the end of the screen, for ranges)
+    Cell* row(int y) { return screen_.data() + (size_t)y * cols_; }
+    const Cell* row(int y) const { return screen_.data() + (size_t)y * cols_; }
     Cell blank() const;
     void touch(int y) {
         if (y >= 0 && y < rows_) {
