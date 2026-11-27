@@ -309,6 +309,14 @@ updates in place. If there is no Wi-Fi or the server fails, the saved copy stays
 and the header shows how old it is (`offline, as of 14:02`, `1 failed`). A failed check
 is retried after 10 minutes, or right away with `r`.
 
+**Wi-Fi.** If a calendar needs checking when you open the app and Wi-Fi is off, the app
+joins the strongest saved network by itself (the header shows `connecting to Wi-Fi...`
+while the saved agenda stays usable) and **switches Wi-Fi off again once the downloads
+are done**. The same goes for `r`. A connection that was already up when you opened the
+app is left alone, and so is one in use when you leave the app before the download has
+finished (another app may need it then). If no saved network is in range within 30
+seconds the app stops trying and shows `no Wi-Fi in range`.
+
 | Keys | Action |
 |------|--------|
 | up / down, `fn`+`[` `]` | Move through the agenda |

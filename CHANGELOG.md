@@ -24,6 +24,9 @@ project uses [Semantic Versioning](https://semver.org/).
   The file is also found at the top of the card or in `/cardputerOS/`, under
   names such as `calendars.txt.txt`, and in UTF-16; `c` → Import from SD card
   imports on request and explains what it found.
+- **Calendar**: opening the app with calendars to check connects to a saved
+  Wi-Fi network by itself (without blocking the agenda) and disconnects again
+  once the downloads are done, unless the connection was already up.
 
 ## [0.9.0] - 2026-11-26
 

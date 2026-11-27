@@ -43,7 +43,8 @@ constexpr int64_t kDay = 86400;
 // Links added on a computer: calendars.txt in kImportDirs[0] (the other folders,
 // and names such as calendars.txt.txt, are accepted too).
 const char* const kImportDirs[] = {"/cardputerOS/calendar", "/cardputerOS/calendars", "/cardputerOS", "/"};
-constexpr uint32_t kCardPollMs = 3000;      // looking for a card while none is inserted
+constexpr uint32_t kCardPollMs = 3000;
+constexpr uint32_t kWifiWaitMs = 30000;     // waiting for Wi-Fi when the app is opened      // looking for a card while none is inserted
 const char* kNoCard = "No microSD card. Calendars are kept on the card: insert one and press r.";
 
 bool clockValid() { return time(nullptr) > 1700000000; }
@@ -160,6 +161,7 @@ public:
             opening_ = false;
             selectToday();
             queueStale(true);
+            if (!queue_.empty()) bringUpWifi();
         }
         redraw();
         announceImport();
@@ -168,6 +170,13 @@ public:
     void onPause() override {
         opening_ = true;
         paused_ = true;
+        // Another app may use the connection from now on: it stays up. A
+        // download that is under way finishes in the background.
+        wifiMine_ = false;
+        if (wifiWaitStart_) {
+            wifiWaitStart_ = 0;
+            if (wifiWasOff_) net::disconnect();  // as it was before the app was opened
+        }
     }
 
     void onTick() override {
@@ -178,6 +187,7 @@ public:
                 loadAll();
                 selectToday();
                 queueStale(true);
+                if (!queue_.empty()) bringUpWifi();
                 redraw();
                 announceImport();
             }
@@ -195,7 +205,7 @@ public:
         if (job_) pumpJob();  // finish a download that was started, but start no new one
     }
 
-    bool keepAwake() override { return job_ != nullptr; }
+    bool keepAwake() override { return job_ != nullptr || wifiWaitStart_ != 0; }
 
     const char* statusText() override {
         status_ = headerStatus();
@@ -721,12 +731,53 @@ private:
         }
     }
 
+    // ------------------------------------------------------------ Wi-Fi for the downloads
+
+    // Opening the app with calendars to check: join a saved network without
+    // waiting for it (the saved copies are shown meanwhile). Wi-Fi is switched
+    // off again once the downloads are done (releaseWifi).
+    void bringUpWifi() {
+        if (net::connected() || wifiWaitStart_) return;
+        wifiWasOff_ = net::autoConnectOff();
+        wifiFailed_ = false;
+        net::connectSoon();
+        wifiMine_ = true;
+        wifiWaitStart_ = millis() | 1;
+    }
+
+    // Disconnects if this app brought Wi-Fi up.
+    void releaseWifi() {
+        wifiWaitStart_ = 0;
+        if (!wifiMine_) return;
+        wifiMine_ = false;
+        net::disconnect();
+        os::refreshStatus();
+    }
+
     void service() {
+        if (wifiWaitStart_) {
+            if (net::connected()) {
+                wifiWaitStart_ = 0;
+            } else if (millis() - wifiWaitStart_ > kWifiWaitMs) {
+                // no saved network in range: give up, as it was before
+                wifiWaitStart_ = 0;
+                wifiMine_ = false;
+                if (wifiWasOff_) net::disconnect();
+                wifiFailed_ = true;
+                if (isForeground() && detail_ < 0) drawHeader();
+                return;
+            }
+        }
         if (job_) {
             pumpJob();
+            if (!job_ && queue_.empty()) releaseWifi();  // the last download is done
             return;
         }
-        if (queue_.empty() || !net::connected()) return;
+        if (queue_.empty()) {
+            if (wifiMine_ && !wifiWaitStart_) releaseWifi();
+            return;
+        }
+        if (!net::connected()) return;
         startJob(queue_.front());
         queue_.erase(queue_.begin());
     }
@@ -881,12 +932,18 @@ private:
             return redraw();
         }
         if (!net::connected()) {
+            if (!wifiMine_) wifiWasOff_ = net::autoConnectOff();
+            wifiMine_ = true;
+            wifiWaitStart_ = 0;
             ui::busy("Connecting to Wi-Fi...");
             if (!net::connectSaved(20000, os::idle)) {
-                ui::alert("Calendar", "Wi-Fi is not connected. The saved copies stay in use.");
+                wifiMine_ = false;
+                if (wifiWasOff_) net::disconnect();
+                ui::alert("Calendar", "Could not connect to a saved Wi-Fi network. The saved copies stay in use.");
                 return redraw();
             }
         }
+        wifiFailed_ = false;
         stopJob();  // a background check of the same calendars would be redundant
         queue_.clear();
         {
@@ -896,6 +953,7 @@ private:
         hal::SdSession session;
         if (!session.ok() || !hal::sdMakeDirs(calstore::kDir)) {
             cardOk_ = false;
+            releaseWifi();
             ui::alert("Calendar", kNoCard);
             rebuild();
             return redraw();
@@ -919,6 +977,7 @@ private:
             applyResult(s, r, head, writeOk);
             if (!s.error.empty()) failures += ui::displayable(s.title()) + ": " + s.error + "\n";
         }
+        releaseWifi();
         rebuild();
         os::refreshStatus();
         if (!failures.empty()) ui::alert("Some calendars were not updated", failures + "The saved copies stay in use.");
@@ -1068,6 +1127,7 @@ private:
     bool isForeground() const { return !paused_; }
 
     std::string headerStatus() const {
+        if (wifiWaitStart_) return "connecting to Wi-Fi...";
         if (job_) {
             for (auto& s : subs_)
                 if (s.id == jobId_) return "updating " + ui::displayable(s.title()) + "...";
@@ -1083,7 +1143,7 @@ private:
         std::string st;
         if (oldest != INT64_MAX) st = "as of " + ageText(oldest);
         if (!net::connected() && oldest != INT64_MAX && (!clockValid() || now() - oldest >= kFreshSec))
-            st = "offline, " + st;
+            st = (wifiFailed_ ? "no Wi-Fi in range, " : "offline, ") + st;
         if (failed) st += (st.empty() ? "" : ", ") + std::to_string(failed) + " failed";
         return st;
     }
@@ -1120,6 +1180,9 @@ private:
     int64_t loadedDay_ = -1;
     bool cardOk_ = false, opening_ = true, paused_ = false;
     uint32_t lastCardPoll_ = 0;
+    // Wi-Fi brought up by this app for its downloads
+    bool wifiMine_ = false, wifiWasOff_ = false, wifiFailed_ = false;
+    uint32_t wifiWaitStart_ = 0;
     int importAdded_ = 0, importKnown_ = 0, importLeft_ = 0;
     std::string importProblem_;
 
