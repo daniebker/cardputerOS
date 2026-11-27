@@ -25,6 +25,7 @@
 #include "../../os/storage.h"
 #include "../../os/theme.h"
 #include "../../os/ui.h"
+#include "calcfg.h"
 #include "calendar_fetch.h"
 #include "calendar_store.h"
 #include "ics.h"
@@ -38,6 +39,8 @@ constexpr uint32_t kRetryMs = 10 * 60000;   // a failed background check is retr
 constexpr int kPastDays = 7, kFutureDays = 120;  // the agenda's window around today
 constexpr size_t kMaxPerCalendar = 500;     // occurrences kept per calendar
 constexpr int64_t kDay = 86400;
+const char* kImportFile = "/cardputerOS/calendar/calendars.txt";  // links added on a computer
+constexpr uint32_t kCardPollMs = 3000;      // looking for a card while none is inserted
 const char* kNoCard = "No microSD card. Calendars are kept on the card: insert one and press r.";
 
 bool clockValid() { return time(nullptr) > 1700000000; }
@@ -149,12 +152,14 @@ public:
     void onResume() override {
         paused_ = false;
         if (!cardOk_) loadAll();
+        else if (opening_) importFromCard();
         if (opening_) {
             opening_ = false;
             selectToday();
             queueStale(true);
         }
         redraw();
+        announceImport();
     }
 
     void onPause() override {
@@ -163,6 +168,17 @@ public:
     }
 
     void onTick() override {
+        // a card inserted while the app is open
+        if (!cardOk_ && millis() - lastCardPoll_ > kCardPollMs) {
+            lastCardPoll_ = millis();
+            if (hal::sdExists(nullptr)) {
+                loadAll();
+                selectToday();
+                queueStale(true);
+                redraw();
+                announceImport();
+            }
+        }
         service();
         // the day changed (or the clock was set): the window moves
         if (clockValid() && localDay(now()) != loadedDay_) {
@@ -223,12 +239,95 @@ private:
         hal::SdSession session;
         cardOk_ = session.ok();
         if (cardOk_) {
+            importFromCard();
             for (auto& s : subs_) {
                 calstore::readMeta(s);
                 if (s.cached) parse(s);
             }
         }
         rebuild();
+    }
+
+    // Adds the calendars listed in the import file on the card (written on a
+    // computer, as links are long to type). The file is then deleted, as the links
+    // usually carry a private token and are stored encrypted on the device; lines
+    // that could not be used are written back for fixing.
+    void importFromCard() {
+        hal::SdSession session;
+        if (!session.ok() || !hal::sdFs().exists(kImportFile)) return;
+        File f = hal::sdFs().open(kImportFile, "r");
+        if (!f) return;
+        std::string text;
+        const size_t size = std::min<size_t>(f.size(), 32 * 1024);
+        text.resize(size);
+        text.resize(size ? f.read((uint8_t*)&text[0], size) : 0);
+        f.close();
+        const calcfg::File cfg = calcfg::parse(text);
+        std::vector<std::string> left;
+        int added = 0, known = 0;
+        for (const calcfg::Line& c : cfg.calendars) {
+            const std::string url = calendarHttpUrl(c.url);
+            dav::Url u;
+            if (!dav::parseUrl(url, u)) {
+                left.push_back(c.name.empty() ? c.url : c.name + "  " + c.url);
+                continue;
+            }
+            bool dup = false;
+            for (auto& s : subs_) dup = dup || calendarHttpUrl(s.url) == url;
+            if (dup) {
+                known++;
+                continue;
+            }
+            if ((int)subs_.size() >= calstore::kMaxCalendars) {
+                left.push_back(c.name.empty() ? c.url : c.name + "  " + c.url);
+                continue;
+            }
+            CalendarSub s;
+            s.id = calstore::newId(subs_);
+            s.color = (int)subs_.size() % calstore::kColorCount;
+            s.name = c.name;
+            s.url = c.url;
+            subs_.push_back(s);
+            added++;
+        }
+        for (auto& l : cfg.unreadable) left.push_back(l);
+        if (added) calstore::saveSubs(subs_);
+        hal::sdFs().remove(kImportFile);
+        if (!left.empty()) {
+            const std::string out = calcfg::leftover(
+                left, "Not imported (no https:// or webcal:// link, or more than " +
+                          std::to_string(calstore::kMaxCalendars) + " calendars):");
+            File w = hal::sdFs().open(kImportFile, "w");
+            if (w) {
+                w.write((const uint8_t*)out.data(), out.size());
+                w.close();
+            }
+        }
+        importAdded_ += added;
+        importKnown_ += known;
+        importLeft_ += (int)left.size();
+    }
+
+    // Tells what the import did and downloads the new calendars (asking about
+    // their servers' certificates). Needs the app in front.
+    void announceImport() {
+        if (!importAdded_ && !importKnown_ && !importLeft_) return;
+        std::string msg;
+        if (importAdded_)
+            msg += "Added " + std::to_string(importAdded_) + (importAdded_ == 1 ? " calendar" : " calendars") +
+                   " from calendars.txt on the SD card.\n";
+        if (importKnown_) msg += std::to_string(importKnown_) + " already subscribed.\n";
+        if (importLeft_)
+            msg += std::to_string(importLeft_) + (importLeft_ == 1 ? " line was" : " lines were") +
+                   " not understood and left in the file.\n";
+        msg += "The links are now stored encrypted on the device";
+        msg += importLeft_ ? "." : ", so the file was deleted from the card.";
+        const bool download = importAdded_ > 0;
+        importAdded_ = importKnown_ = importLeft_ = 0;
+        rebuild();
+        ui::alert("Calendar", msg);
+        if (download) refreshNow();
+        else redraw();
     }
 
     // Parses one calendar's copy (inside an SdSession) into its entries.
@@ -942,6 +1041,8 @@ private:
     int detail_ = -1, detailTop_ = 0, detailMaxTop_ = 0;
     int64_t loadedDay_ = -1;
     bool cardOk_ = false, opening_ = true, paused_ = false;
+    uint32_t lastCardPoll_ = 0;
+    int importAdded_ = 0, importKnown_ = 0, importLeft_ = 0;
 
     // background revalidation
     std::vector<int> queue_;

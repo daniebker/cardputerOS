@@ -17,6 +17,10 @@ project uses [Semantic Versioning](https://semver.org/).
   Last-Modified); a new copy replaces the old one only once it is complete.
   Repeating events, exceptions, all-day events and time zones are supported.
   The links are stored encrypted.
+- **Calendar**: calendars can be added from a computer by listing their links
+  in `/cardputerOS/calendar/calendars.txt` on the microSD card. The app picks the
+  file up when it opens or when the card is inserted, downloads the new
+  calendars, stores the links encrypted and deletes the file.
 
 ## [0.9.0] - 2026-11-26
 

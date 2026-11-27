@@ -323,6 +323,27 @@ To add one, press `c` → **+ Add calendar**, paste or type the link and give it
 password (e.g. a private feed behind Basic authentication) say so when asked; most
 calendar links do not. The first download happens right away.
 
+**Adding calendars from a computer.** Calendar links are long, so instead of typing
+them you can put them in a text file on the card, `/cardputerOS/calendar/calendars.txt`,
+one calendar per line: an optional name, then the link. Empty lines and lines
+starting with `#` are ignored.
+
+```
+# name (optional)   link
+Work       https://calendar.google.com/calendar/ical/.../basic.ics
+Holidays:  webcal://example.com/holidays.ics
+https://example.com/team.ics
+```
+
+The app reads the file when it is opened, or when the card is inserted while the app
+is open. It adds the calendars that are not subscribed yet and downloads them right
+away (asking about each new server's certificate). Because the links usually contain a
+private token, they are then stored encrypted on the device and **the file is deleted
+from the card**. Lines that could not be used (no link, or more than 8 calendars) are
+written back to the file with a note, so you can fix them. A calendar that needs a user
+name and password can be imported this way too; add the login afterwards with `c` →
+the calendar → **Change link**.
+
 The agenda covers the last 7 days and the next 120. Repeating events (daily, weekly,
 monthly, yearly rules with intervals, counts, end dates, weekdays such as "last Friday",
 exceptions and moved or cancelled single dates) and all-day and multi-day events are
