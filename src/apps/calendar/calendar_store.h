@@ -8,6 +8,8 @@
 //     /cardputerOS/calendar/<id>.ics    the calendar
 //     /cardputerOS/calendar/<id>.meta   ETag, Last-Modified, when it was checked
 //     /cardputerOS/calendar/<id>.tmp    a download in progress
+//     /cardputerOS/calendar/<id>.occ    the agenda index built from it (see lib/calidx)
+//     /cardputerOS/calendar/<id>.txt    the texts of the indexed events
 //
 // The .ics is only replaced once a download has completed and looks like a
 // calendar, so a failed refresh always leaves the previous copy usable.
@@ -28,6 +30,12 @@ struct CalendarSub {
     int64_t fetchedAt = 0;  // last time a new copy was downloaded
     bool cached = false;    // <id>.ics exists
     std::string note;       // a problem reading the copy (e.g. too large), not saved
+    // the agenda index (<id>.occ / .txt): the window it covers (local days), the
+    // time zone and the download it was built for
+    int64_t indexFrom = 0, indexTo = 0, indexFetched = -1;
+    int indexOffset = 0;
+    uint32_t indexRecords = 0;
+    bool indexTruncated = false;
 
     std::string title() const { return !name.empty() ? name : !feedName.empty() ? feedName : "Calendar " + std::to_string(id); }
 };
@@ -48,6 +56,8 @@ int newId(const std::vector<CalendarSub>& subs);
 
 std::string icsPath(int id);
 std::string tmpPath(int id);
+std::string occPath(int id);
+std::string txtPath(int id);
 // The following need an open hal::SdSession.
 void readMeta(CalendarSub& s);
 bool writeMeta(const CalendarSub& s);

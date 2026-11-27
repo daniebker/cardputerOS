@@ -8,6 +8,12 @@
 // request). A newer copy replaces the old one only once it has been downloaded
 // completely, and the agenda then updates in place. Without Wi-Fi, or if the
 // server fails, the last copy stays in use and the header says how old it is.
+//
+// Memory: downloads go to the card in batches, one calendar at a time. A
+// calendar is never held in memory as a whole: after a download it is turned
+// into an index on the card (lib/calidx: two streaming passes over the .ics),
+// and the agenda shows one page of days at a time, read from those index files;
+// event descriptions are only read when an event is opened.
 #include <Arduino.h>
 
 #include <algorithm>
@@ -30,6 +36,7 @@
 #include "../../os/theme.h"
 #include "../../os/ui.h"
 #include "calcfg.h"
+#include "calidx.h"
 #include "calendar_fetch.h"
 #include "calendar_store.h"
 #include "ics.h"
@@ -41,13 +48,20 @@ namespace dr = theme::dracula;
 constexpr int64_t kFreshSec = 15 * 60;      // a copy checked this recently is used without asking the server
 constexpr uint32_t kRetryMs = 10 * 60000;   // a failed background check is retried after this long
 constexpr int kPastDays = 7, kFutureDays = 120;  // the agenda's window around today
-constexpr size_t kMaxPerCalendar = 500;     // occurrences kept per calendar
+// The index covers a wider window, so it is rebuilt only every few weeks (or
+// after a new download).
+constexpr int kIndexPastDays = 30, kIndexFutureDays = 180;
+constexpr uint32_t kMaxRecords = 4000;      // occurrences indexed per calendar
+constexpr size_t kMaxText = 300;            // bytes kept of a summary / location / description
+constexpr int kPageDays = 14;               // days of the agenda held in memory at a time
+constexpr size_t kMaxPageEntries = 400;     // events held in memory for one page
+constexpr size_t kDownloadBatch = 4096;     // downloads are written to the card in pieces of this size
 constexpr int64_t kDay = 86400;
 // Links added on a computer: calendars.txt in kImportDirs[0] (the other folders,
 // and names such as calendars.txt.txt, are accepted too).
 const char* const kImportDirs[] = {"/cardputerOS/calendar", "/cardputerOS/calendars", "/cardputerOS", "/"};
 constexpr uint32_t kCardPollMs = 3000;
-constexpr uint32_t kWifiWaitMs = 30000;     // waiting for Wi-Fi when the app is opened      // looking for a card while none is inserted
+constexpr uint32_t kWifiWaitMs = 30000;     // waiting for Wi-Fi when the app is opened
 const char* kNoCard = "No microSD card. Calendars are kept on the card: insert one and press r.";
 
 bool clockValid() { return time(nullptr) > 1700000000; }
@@ -89,6 +103,14 @@ std::string ageText(int64_t t) {
     return std::to_string((long long)days) + " days ago";
 }
 
+// At most `max` bytes, not splitting a UTF-8 character.
+std::string cutUtf8(const std::string& s, size_t max) {
+    if (s.size() <= max) return s;
+    size_t n = max;
+    while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) n--;
+    return s.substr(0, n);
+}
+
 std::vector<std::string> wrapText(os::Gfx& g, const std::string& text, int maxW) {
     std::vector<std::string> lines;
     size_t start = 0;
@@ -123,20 +145,18 @@ std::vector<std::string> wrapText(os::Gfx& g, const std::string& text, int maxW)
     return lines;
 }
 
+// An occurrence on the current page.
 struct Entry {
     int64_t start = 0, end = 0;
     bool allDay = false;
-    int cal = 0;       // calendar id
-    uint32_t info = 0; // index into the calendar's infos
+    int cal = 0;        // calendar id
+    uint32_t text = 0;  // offset of the event's text in the calendar's .txt file
 };
 
+// Summary and location of an event on the page (the description is read when
+// the event is opened).
 struct Info {
-    std::string summary, location, description;
-};
-
-struct Parsed {
-    std::vector<Entry> entries;
-    std::vector<Info> infos;
+    std::string summary, location;
 };
 
 struct Row {
@@ -159,7 +179,10 @@ public:
     void onResume() override {
         paused_ = false;
         if (!cardOk_) loadAll();
-        else if (opening_) importFromCard();
+        else if (opening_) {
+            importFromCard();
+            refreshIndexes();
+        }
         if (opening_) {
             opening_ = false;
             selectToday();
@@ -229,6 +252,13 @@ public:
             jumpDay(ev.is(key::Left) || ev.is('<') || ev.is(',') ? -1 : 1);
             return;
         }
+        // moving past the first or last row of the page loads the next page
+        const bool down = ui::isDown(ev) || ev.is(key::PageDown), up = ui::isUp(ev) || ev.is(key::PageUp);
+        if (down && !rows_.empty() && list_.selected >= (int)rows_.size() - 1 && pageTo_ <= lastDay())
+            return turnPage(1);
+        if (up && !rows_.empty() && clockValid() && pageFrom_ > firstDay() &&
+            (list_.selected <= 0 || (list_.selected == 1 && rows_[0].kind == Row::Day)))
+            return turnPage(-1);
         os::Gfx& g = os::gfx();
         const int before = list_.selected;
         const ui::List::Result res = list_.onKey(g, listRect_, ev);
@@ -248,9 +278,9 @@ private:
         return nullptr;
     }
 
-    // Reads every calendar's copy from the card (needs no network).
+    // Reads every calendar's metadata from the card, brings the indexes up to
+    // date and loads the page of days around today (needs no network).
     void loadAll() {
-        parsed_.clear();
         loadedDay_ = clockValid() ? localDay(now()) : -1;
         hal::SdSession session;
         cardOk_ = session.ok();
@@ -258,9 +288,11 @@ private:
             importFromCard();
             for (auto& s : subs_) {
                 calstore::readMeta(s);
-                if (s.cached) parse(s);
+                ensureIndex(s);
             }
         }
+        rememberSelection();
+        loadPage(clockValid() ? localDay(now()) - 2 : 0);
         rebuild();
     }
 
@@ -407,76 +439,153 @@ private:
         else redraw();
     }
 
-    // Parses one calendar's copy (inside an SdSession) into its entries.
-    void parse(CalendarSub& s) {
-        parsed_.erase(s.id);
+    // ------------------------------------------------------------ index and pages
+
+    int64_t firstDay() const { return localDay(now()) - kPastDays; }
+    int64_t lastDay() const { return localDay(now()) + kFutureDays; }
+
+    // Rebuilds the calendar's index if it is missing, older than the download,
+    // for another time zone, or does not cover the agenda's window (inside an
+    // SdSession).
+    bool ensureIndex(CalendarSub& s) {
+        if (!s.cached || !clockValid()) return false;
+        const int64_t today = localDay(now());
+        const bool current = s.indexFetched == s.fetchedAt && s.indexOffset == localOffset() &&
+                             s.indexFrom <= today - kPastDays && s.indexTo >= today + kFutureDays + 1 &&
+                             hal::sdFs().exists(calstore::occPath(s.id).c_str()) &&
+                             hal::sdFs().exists(calstore::txtPath(s.id).c_str());
+        if (!current) buildIndex(s);
+        return !current;
+    }
+
+    // Opening the app: indexes may be out of date (e.g. the time zone was changed in Settings).
+    void refreshIndexes() {
+        if (!cardOk_ || !clockValid()) return;
+        bool changed = false;
+        {
+            hal::SdSession session;
+            if (!session.ok()) return;
+            for (auto& s : subs_) changed = ensureIndex(s) || changed;
+        }
+        if (changed) reloadPage(pageFrom_);
+    }
+
+    // Turns the calendar's .ics into its index files (inside an SdSession). Two
+    // streaming passes: the memory used does not depend on the calendar's size.
+    void buildIndex(CalendarSub& s) {
         s.note.clear();
-        // A calendar can hold far more events than fit in memory: the parser keeps
-        // within a budget, and running out anyway is reported instead of crashing.
-        try {
-            parseFile(s);
-        } catch (const std::bad_alloc&) {
-            parsed_.erase(s.id);
-            s.note = "Too large for the memory of the device: not shown. Removing old or repeating events from "
-                     "the calendar may help.";
-        }
-    }
-
-    // Memory the events of one calendar may use while it is read.
-    static size_t parseBudget() {
-        const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-        const size_t total = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-        size_t budget = std::min(total / 3, largest / 2);
-        return std::max<size_t>(8 * 1024, std::min<size_t>(budget, 96 * 1024));
-    }
-
-    void parseFile(CalendarSub& s) {
-        File f = hal::sdFs().open(calstore::icsPath(s.id).c_str(), "r");
-        if (!f) return;
-        if (f.size() > 64 * 1024 && isForeground()) ui::busy("Reading " + s.title() + "...");
-        const int64_t today = clockValid() ? localDay(now()) : 0;
-        const int64_t from = dayStart(today - kPastDays), to = dayStart(today + kFutureDays + 1);
-        ics::Calendar cal;
-        cal.keepAfter = from;
-        cal.keepBefore = to;
-        cal.maxText = 300;
-        cal.maxEvents = 1500;
-        cal.maxBytes = parseBudget();
-        char buf[1024];
-        for (;;) {
-            const int n = f.read((uint8_t*)buf, sizeof buf);
-            if (n <= 0) break;
-            cal.feed(buf, (size_t)n);
-        }
-        f.close();
-        cal.finish();
-        if (!cal.sawCalendar()) {
-            s.error = "The saved copy is not a calendar; it will be downloaded again.";
-            s.etag.clear();
-            s.lastModified.clear();
-            s.checkedAt = 0;
-            return;
-        }
-        s.feedName = cal.name();
-        if (cal.truncated())
-            s.note = "Too many events for the memory of the device: only part of the calendar is shown.";
-        Parsed p;
-        if (clockValid()) {
-            std::map<uint32_t, uint32_t> infoOf;  // event index -> info index
-            for (const ics::Occurrence& o : cal.expand(from, to, localOffset(), kMaxPerCalendar)) {
-                auto it = infoOf.find(o.event);
-                if (it == infoOf.end()) {
-                    const ics::Event& e = cal.events()[o.event];
-                    p.infos.push_back({e.summary, e.location, e.description});
-                    it = infoOf.emplace(o.event, (uint32_t)p.infos.size() - 1).first;
-                }
-                p.entries.push_back({o.start, o.end, o.allDay, s.id, it->second});
+        if (!clockValid()) return;
+        fs::FS& sd = hal::sdFs();
+        File in = sd.open(calstore::icsPath(s.id).c_str(), "r");
+        if (!in) return;
+        if (isForeground() && in.size() > 32 * 1024) ui::busy("Reading " + ui::displayable(s.title()) + "...");
+        const std::string occTmp = calstore::occPath(s.id) + ".tmp", txtTmp = calstore::txtPath(s.id) + ".tmp";
+        File occ = sd.open(occTmp.c_str(), "w"), txt = sd.open(txtTmp.c_str(), "w");
+        const int64_t today = localDay(now());
+        const int64_t fromDay = today - kIndexPastDays, toDay = today + kIndexFutureDays + 1;
+        calidx::BuildResult r;
+        bool memoryOk = true;
+        if (occ && txt) {
+            calidx::BatchWriter wo([&occ](const char* d, size_t n) { return occ.write((const uint8_t*)d, n) == n; });
+            calidx::BatchWriter wt([&txt](const char* d, size_t n) { return txt.write((const uint8_t*)d, n) == n; });
+            calidx::Source src;
+            src.rewind = [&in]() { return in.seek(0); };
+            src.read = [&in](char* b, size_t n) { return in.read((uint8_t*)b, n); };
+            try {
+                r = calidx::build(src, wo, wt, dayStart(fromDay), dayStart(toDay), localOffset(), kMaxRecords, kMaxText);
+            } catch (const std::bad_alloc&) {
+                memoryOk = false;
             }
         }
-        parsed_[s.id] = std::move(p);
+        in.close();
+        if (occ) occ.close();
+        if (txt) txt.close();
+        if (!memoryOk || !r.ok) {
+            sd.remove(occTmp.c_str());
+            sd.remove(txtTmp.c_str());
+            if (!memoryOk) {
+                s.note = "Not enough memory to read this calendar.";
+            } else if (!r.isCalendar && occ && txt) {
+                s.error = "The saved copy is not a calendar; it will be downloaded again.";
+                s.etag.clear();
+                s.lastModified.clear();
+                s.checkedAt = 0;
+            } else {
+                s.note = "Could not write the calendar's index on the SD card (full?).";
+            }
+            s.indexFetched = -1;
+            s.indexRecords = 0;
+            calstore::writeMeta(s);
+            return;
+        }
+        for (const std::string& p : {calstore::occPath(s.id), calstore::txtPath(s.id)})
+            if (sd.exists(p.c_str())) sd.remove(p.c_str());
+        sd.rename(occTmp.c_str(), calstore::occPath(s.id).c_str());
+        sd.rename(txtTmp.c_str(), calstore::txtPath(s.id).c_str());
+        s.feedName = r.name;
+        s.indexFrom = fromDay;
+        s.indexTo = toDay;
+        s.indexFetched = s.fetchedAt;
+        s.indexOffset = localOffset();
+        s.indexRecords = r.records;
+        s.indexTruncated = r.truncated;
+        if (r.truncated)
+            s.note = "More than " + std::to_string(kMaxRecords) + " events in the next months: the later ones are not shown.";
+        calstore::writeMeta(s);
     }
 
-    const Info& infoOf(const Entry& e) const { return parsed_.at(e.cal).infos[e.info]; }
+    // Loads the events of the days [day, day + kPageDays) from the index files.
+    void loadPage(int64_t day) {
+        entries_.clear();
+        texts_.clear();
+        if (clockValid()) day = std::max(firstDay(), std::min(day, lastDay() + 1 - kPageDays));
+        pageFrom_ = day;
+        pageTo_ = day + kPageDays;
+        if (!cardOk_ || !clockValid()) return;
+        hal::SdSession session;
+        if (!session.ok()) return;
+        fs::FS& sd = hal::sdFs();
+        const int64_t from = dayStart(pageFrom_), to = dayStart(pageTo_);
+        for (auto& s : subs_) {
+            if (s.indexFetched < 0 || !s.indexRecords) continue;
+            std::vector<calidx::Record> recs;
+            File occ = sd.open(calstore::occPath(s.id).c_str(), "r");
+            if (!occ) continue;
+            calidx::scan([&occ](uint8_t* b, size_t n) { return occ.read(b, n); }, from, to,
+                         kMaxPageEntries - std::min(kMaxPageEntries, entries_.size()), recs);
+            occ.close();
+            if (recs.empty()) continue;
+            File txt = sd.open(calstore::txtPath(s.id).c_str(), "r");
+            for (const calidx::Record& r : recs) {
+                entries_.push_back({r.start, r.end, r.allDay, s.id, r.text});
+                const auto key = std::make_pair(s.id, r.text);
+                if (texts_.count(key)) continue;
+                calidx::Text t;
+                if (txt) readText(txt, r.text, t, false);
+                texts_[key] = {cutUtf8(t.summary, 100), cutUtf8(t.location.substr(0, t.location.find('\n')), 40)};
+            }
+            if (txt) txt.close();
+        }
+        std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
+            if (a.start != b.start) return a.start < b.start;
+            return a.allDay && !b.allDay;
+        });
+    }
+
+    static bool readText(File& f, uint32_t offset, calidx::Text& out, bool withDescription) {
+        if (!f.seek(offset)) return false;
+        std::string raw;
+        raw.resize(withDescription ? calidx::maxTextBytes(kMaxText) : 2 * kMaxText + 8);
+        const int n = f.read((uint8_t*)&raw[0], raw.size());
+        raw.resize(n > 0 ? (size_t)n : 0);
+        return calidx::decodeText(raw, out, withDescription);
+    }
+
+    const Info& infoOf(const Entry& e) const {
+        static const Info none;
+        auto it = texts_.find(std::make_pair(e.cal, e.text));
+        return it == texts_.end() ? none : it->second;
+    }
 
     uint32_t colorOf(int cal) const {
         for (auto& s : subs_)
@@ -488,39 +597,15 @@ private:
     void rebuild() {
         // Entries are re-indexed when a calendar is read again: remember the
         // selected and the opened event by what they are.
-        struct Key {
-            int64_t start = 0;
-            int cal = -1;
-            std::string summary;
-        };
-        auto keyOf = [this](int entry) {
-            Key k;
-            if (entry < 0 || entry >= (int)entries_.size() || !parsed_.count(entries_[entry].cal)) return k;
-            const Entry& e = entries_[entry];
-            const Parsed& p = parsed_.at(e.cal);
-            if (e.info >= p.infos.size()) return k;
-            k.start = e.start;
-            k.cal = e.cal;
-            k.summary = p.infos[e.info].summary;
-            return k;
-        };
-        auto matches = [this](const Entry& e, const Key& k) {
-            return k.cal >= 0 && e.cal == k.cal && e.start == k.start && infoOf(e).summary == k.summary;
-        };
-        Key keep, open;
-        int64_t keepDay = INT64_MIN;
-        if (list_.selected >= 0 && list_.selected < (int)rows_.size()) {
+        Key keep = keep_, open = open_;
+        int64_t keepDay = keepDay_;
+        keep_ = open_ = Key();
+        keepDay_ = INT64_MIN;
+        if (keepDay == INT64_MIN && list_.selected >= 0 && list_.selected < (int)rows_.size()) {
             keepDay = rows_[list_.selected].day;
             keep = keyOf(rows_[list_.selected].entry);
         }
-        if (detail_ >= 0) open = keyOf(detail_);
-        entries_.clear();
-        for (auto& kv : parsed_)
-            for (const Entry& e : kv.second.entries) entries_.push_back(e);
-        std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
-            if (a.start != b.start) return a.start < b.start;
-            return a.allDay && !b.allDay;
-        });
+        if (detail_ >= 0 && open.cal < 0) open = keyOf(detail_);
         if (detail_ >= 0) {
             detail_ = -1;
             for (size_t i = 0; i < entries_.size() && detail_ < 0; i++)
@@ -532,7 +617,7 @@ private:
         if (clockValid() && cardOk_) {
             const int64_t today = localDay(now());
             const int64_t t = now();
-            for (int64_t day = today - kPastDays; day <= today + kFutureDays; day++) {
+            for (int64_t day = pageFrom_; day < pageTo_; day++) {
                 const int64_t ds = dayStart(day), de = ds + kDay;
                 bool header = false;
                 auto addHeader = [&]() {
@@ -581,6 +666,41 @@ private:
         else list_.emptyText = "Nothing in the next months";
     }
 
+    // Identifies an event across page loads and index rebuilds.
+    struct Key {
+        int64_t start = 0;
+        int cal = -1;
+        std::string summary;
+    };
+    Key keyOf(int entry) const {
+        Key k;
+        if (entry < 0 || entry >= (int)entries_.size()) return k;
+        const Entry& e = entries_[entry];
+        k.start = e.start;
+        k.cal = e.cal;
+        k.summary = infoOf(e).summary;
+        return k;
+    }
+    bool matches(const Entry& e, const Key& k) const {
+        return k.cal >= 0 && e.cal == k.cal && e.start == k.start && infoOf(e).summary == k.summary;
+    }
+    // Remembers the selected (and opened) event before entries_ is replaced, for rebuild().
+    void rememberSelection() {
+        keepDay_ = INT64_MIN;
+        keep_ = open_ = Key();
+        if (list_.selected >= 0 && list_.selected < (int)rows_.size()) {
+            keepDay_ = rows_[list_.selected].day;
+            keep_ = keyOf(rows_[list_.selected].entry);
+        }
+        if (detail_ >= 0) open_ = keyOf(detail_);
+    }
+    // Loads another page, keeping the selection where it was if it is on it.
+    void reloadPage(int64_t day) {
+        rememberSelection();
+        loadPage(day);
+        rebuild();
+    }
+
     ui::ListItem eventItem(const Entry& e, int64_t ds, int64_t de, int64_t t) const {
         const Info& in = infoOf(e);
         std::string when;
@@ -601,6 +721,10 @@ private:
     // ------------------------------------------------------------ navigation
 
     void selectToday() {
+        if (clockValid() && (localDay(now()) < pageFrom_ + 1 || localDay(now()) >= pageTo_ - 1)) {
+            loadPage(localDay(now()) - 2);
+            rebuild();
+        }
         if (rows_.empty()) return;
         const int64_t today = clockValid() ? localDay(now()) : 0, t = now();
         int sel = -1, firstToday = -1;
@@ -634,32 +758,52 @@ private:
         os::refreshStatus();
     }
 
+    // Half a page on, keeping the selected event, then one row further.
+    void turnPage(int dir) {
+        reloadPage(pageFrom_ + dir * kPageDays / 2);
+        int sel = std::max(0, std::min(list_.selected + dir, (int)rows_.size() - 1));
+        if (sel >= 0 && sel < (int)rows_.size() && rows_[sel].kind == Row::Day) {
+            const int next = sel + dir;
+            if (next >= 0 && next < (int)rows_.size()) sel = next;
+        }
+        list_.selected = sel;
+        list_.clampSelection();
+        redraw();
+    }
+
+    // The next / previous day with events, loading further pages as needed.
     void jumpDay(int dir) {
-        if (rows_.empty()) return;
+        if (rows_.empty() || !clockValid()) return;
         const int sel = std::max(0, std::min(list_.selected, (int)rows_.size() - 1));
         const int64_t day = rows_[sel].day;
-        int target = -1;
-        if (dir > 0) {
-            for (size_t k = sel; k < rows_.size(); k++)
-                if (rows_[k].day > day && rows_[k].kind != Row::Day) {
-                    target = (int)k;
-                    break;
+        for (int pages = 0; pages < (kFutureDays + kPastDays) / kPageDays + 2; pages++) {
+            int target = -1;
+            if (dir > 0) {
+                for (size_t k = 0; k < rows_.size() && target < 0; k++)
+                    if (rows_[k].day > day && rows_[k].kind != Row::Day) target = (int)k;
+            } else {
+                int64_t prevDay = INT64_MIN;
+                for (size_t k = 0; k < rows_.size(); k++)
+                    if (rows_[k].day < day && rows_[k].kind != Row::Day) prevDay = rows_[k].day;
+                for (size_t k = 0; k < rows_.size() && prevDay != INT64_MIN && target < 0; k++)
+                    if (rows_[k].day == prevDay && rows_[k].kind != Row::Day) target = (int)k;
+            }
+            if (target >= 0) {
+                if (pages == 0) {
+                    list_.update(os::gfx(), listRect_, list_.items, target);
+                } else {
+                    list_.selected = target;
+                    redraw();
                 }
-        } else {
-            int64_t prevDay = INT64_MIN;
-            for (int k = sel; k >= 0; k--)
-                if (rows_[k].day < day && rows_[k].kind != Row::Day) {
-                    prevDay = rows_[k].day;
-                    break;
-                }
-            for (size_t k = 0; k < rows_.size() && prevDay != INT64_MIN; k++)
-                if (rows_[k].day == prevDay && rows_[k].kind != Row::Day) {
-                    target = (int)k;
-                    break;
-                }
+                return;
+            }
+            // not on this page: the next one in that direction
+            if (dir > 0 ? pageTo_ > lastDay() : pageFrom_ <= firstDay()) break;
+            rememberSelection();
+            loadPage(dir > 0 ? pageTo_ : pageFrom_ - kPageDays);
+            rebuild();
         }
-        if (target < 0) return;
-        list_.update(os::gfx(), listRect_, list_.items, target);
+        redraw();
     }
 
     // ------------------------------------------------------------ detail screen
@@ -669,7 +813,25 @@ private:
         if (sel < 0 || sel >= (int)rows_.size() || rows_[sel].entry < 0) return;
         detail_ = rows_[sel].entry;
         detailTop_ = 0;
+        loadDetailText();
         redraw();
+    }
+
+    // The opened event's whole text, description included.
+    void loadDetailText() {
+        detailText_ = calidx::Text();
+        if (detail_ < 0 || detail_ >= (int)entries_.size()) return;
+        const Entry& e = entries_[detail_];
+        const Info& in = infoOf(e);
+        detailText_.summary = in.summary;
+        detailText_.location = in.location;
+        hal::SdSession session;
+        if (!session.ok()) return;
+        File txt = hal::sdFs().open(calstore::txtPath(e.cal).c_str(), "r");
+        if (!txt) return;
+        calidx::Text t;
+        if (readText(txt, e.text, t, true)) detailText_ = t;
+        txt.close();
     }
 
     void detailKey(const key::Event& ev) {
@@ -705,7 +867,7 @@ private:
 
     void drawDetail(os::Gfx& g, const os::Rect& c) {
         const Entry& e = entries_[detail_];
-        const Info& in = infoOf(e);
+        const calidx::Text& in = detailText_;
         const CalendarSub* s = findSub(e.cal);
         os::Rect body = ui::header(g, c, s ? ui::displayable(s->title()).c_str() : "Event");
         body = ui::footer(g, body, "up / down: scroll   Esc / Backspace: back");
@@ -830,6 +992,8 @@ private:
         }
         jobHead_.clear();
         jobWriteOk_ = true;
+        jobWriter_.reset(new calidx::BatchWriter(
+            [this](const char* d, size_t n) { return jobFile_.write((const uint8_t*)d, n) == n; }, kDownloadBatch));
         // A TLS connection needs about 45 KB in one piece, plus the task's stack.
         if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 48 * 1024) {
             jobFile_.close();
@@ -863,16 +1027,20 @@ private:
         return r;
     }
 
-    bool writeChunk(File& f, std::string& head, bool& writeOk, const char* d, size_t n) {
+    // Download data: the start is kept to check it is a calendar, the rest goes
+    // to the card through the batch writer.
+    static bool writeChunk(calidx::BatchWriter& w, std::string& head, bool& writeOk, const char* d, size_t n) {
         if (head.size() < 512) head.append(d, std::min(n, 512 - head.size()));
-        if (writeOk && f.write((const uint8_t*)d, n) != n) writeOk = false;
+        if (writeOk && !w.write(d, n)) writeOk = false;
         return writeOk;
     }
 
     void pumpJob() {
         const bool finished =
-            job_->pump([this](const char* d, size_t n) { return writeChunk(jobFile_, jobHead_, jobWriteOk_, d, n); });
+            job_->pump([this](const char* d, size_t n) { return writeChunk(*jobWriter_, jobHead_, jobWriteOk_, d, n); });
         if (!finished) return;
+        if (jobWriteOk_ && !jobWriter_->flush()) jobWriteOk_ = false;
+        jobWriter_.reset();
         jobFile_.close();
         const FetchResult res = job_->result();
         job_.reset();
@@ -895,6 +1063,7 @@ private:
         if (!job_) return;
         job_->cancel();
         job_.reset();
+        jobWriter_.reset();
         jobFile_.close();
         if (jobSession_) hal::sdFs().remove(calstore::tmpPath(jobId_).c_str());
         jobSession_.reset();
@@ -932,11 +1101,12 @@ private:
             s.error = r.error.empty() ? "Download failed." : r.error;
         }
         if (hal::sdFs().exists(tmp.c_str())) hal::sdFs().remove(tmp.c_str());
-        if (reparse) {
-            parse(s);
-            rebuild();
-        }
         calstore::writeMeta(s);
+        if (reparse) {
+            buildIndex(s);  // writes the metadata again
+            reloadPage(pageFrom_);
+            if (detail_ >= 0) loadDetailText();
+        }
         if (s.error.empty()) lastTry_.erase(s.id);
     }
 
@@ -1007,8 +1177,11 @@ private:
             if (!f) {
                 r.error = "Could not write to the SD card (full?).";
             } else {
+                calidx::BatchWriter w([&f](const char* d, size_t n) { return f.write((const uint8_t*)d, n) == n; },
+                                      kDownloadBatch);
                 r = fetchCalendar(request(s), certPrompt(),
-                                  [&](const char* d, size_t n) { return writeChunk(f, head, writeOk, d, n); });
+                                  [&](const char* d, size_t n) { return writeChunk(w, head, writeOk, d, n); });
+                if (writeOk && !w.flush()) writeOk = false;
                 f.close();
             }
             applyResult(s, r, head, writeOk);
@@ -1132,8 +1305,9 @@ private:
                 break;
             case 4: {
                 std::string text = "Last checked: " + ageText(s->checkedAt) + "\nLast changed: " + ageText(s->fetchedAt);
-                auto it = parsed_.find(id);
-                if (it != parsed_.end()) text += "\nEvents shown: " + std::to_string(it->second.entries.size());
+                if (s->indexFetched >= 0)
+                    text += "\nEvents in the next months: " + std::to_string(s->indexRecords) +
+                            (s->indexTruncated ? " (limit reached)" : "");
                 if (!s->note.empty()) text += "\n" + s->note;
                 if (!s->error.empty()) text += "\nLast error: " + s->error;
                 ui::alert(ui::displayable(s->title()).c_str(), text);
@@ -1149,11 +1323,11 @@ private:
                         if (session.ok()) calstore::removeFiles(id);
                     }
                     calstore::forgetSecrets(id);
-                    parsed_.erase(id);
                     subs_.erase(std::remove_if(subs_.begin(), subs_.end(), [id](const CalendarSub& c) { return c.id == id; }),
                                 subs_.end());
                     calstore::saveSubs(subs_);
-                    rebuild();
+                    detail_ = -1;
+                    reloadPage(pageFrom_);
                     return false;
                 }
                 break;
@@ -1210,8 +1384,12 @@ private:
     }
 
     std::vector<CalendarSub> subs_;
-    std::map<int, Parsed> parsed_;
-    std::vector<Entry> entries_;
+    std::vector<Entry> entries_;                        // the current page
+    std::map<std::pair<int, uint32_t>, Info> texts_;    // (calendar, text offset) -> summary, location
+    int64_t pageFrom_ = 0, pageTo_ = 0;                 // the page's days (local day numbers)
+    calidx::Text detailText_;                           // the opened event
+    Key keep_, open_;                                   // see rememberSelection()
+    int64_t keepDay_ = INT64_MIN;
     std::vector<Row> rows_;
     ui::List list_;
     os::Rect listRect_{0, 0, 0, 0};
@@ -1233,6 +1411,7 @@ private:
     int jobId_ = 0;
     std::unique_ptr<hal::SdSession> jobSession_;
     File jobFile_;
+    std::unique_ptr<calidx::BatchWriter> jobWriter_;
     std::string jobHead_;
     bool jobWriteOk_ = true;
 };

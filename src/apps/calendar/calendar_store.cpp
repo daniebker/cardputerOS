@@ -78,6 +78,8 @@ int newId(const std::vector<CalendarSub>& subs) {
 
 std::string icsPath(int id) { return std::string(kDir) + "/" + std::to_string(id) + ".ics"; }
 std::string tmpPath(int id) { return std::string(kDir) + "/" + std::to_string(id) + ".tmp"; }
+std::string occPath(int id) { return std::string(kDir) + "/" + std::to_string(id) + ".occ"; }
+std::string txtPath(int id) { return std::string(kDir) + "/" + std::to_string(id) + ".txt"; }
 
 void readMeta(CalendarSub& s) {
     s.etag.clear();
@@ -85,6 +87,11 @@ void readMeta(CalendarSub& s) {
     s.error.clear();
     s.feedName.clear();
     s.checkedAt = s.fetchedAt = 0;
+    s.indexFrom = s.indexTo = 0;
+    s.indexFetched = -1;
+    s.indexOffset = 0;
+    s.indexRecords = 0;
+    s.indexTruncated = false;
     s.cached = sd().exists(icsPath(s.id).c_str());
     const std::string path = metaPath(s.id);
     if (!s.cached || !sd().exists(path.c_str())) return;
@@ -105,6 +112,12 @@ void readMeta(CalendarSub& s) {
         else if (k == "name") s.feedName = v;
         else if (k == "checked") s.checkedAt = atoll(v.c_str());
         else if (k == "fetched") s.fetchedAt = atoll(v.c_str());
+        else if (k == "ixfrom") s.indexFrom = atoll(v.c_str());
+        else if (k == "ixto") s.indexTo = atoll(v.c_str());
+        else if (k == "ixfetched") s.indexFetched = atoll(v.c_str());
+        else if (k == "ixoffset") s.indexOffset = atoi(v.c_str());
+        else if (k == "ixrecords") s.indexRecords = (uint32_t)strtoul(v.c_str(), nullptr, 10);
+        else if (k == "ixtrunc") s.indexTruncated = v == "1";
     }
 }
 
@@ -113,7 +126,12 @@ bool writeMeta(const CalendarSub& s) {
     const std::string text = "etag=" + oneLine(s.etag) + "\nmodified=" + oneLine(s.lastModified) +
                              "\nchecked=" + std::to_string((long long)s.checkedAt) +
                              "\nfetched=" + std::to_string((long long)s.fetchedAt) + "\nname=" + oneLine(s.feedName) +
-                             "\nerror=" + oneLine(s.error) + "\n";
+                             "\nerror=" + oneLine(s.error) + "\nixfrom=" + std::to_string((long long)s.indexFrom) +
+                             "\nixto=" + std::to_string((long long)s.indexTo) +
+                             "\nixfetched=" + std::to_string((long long)s.indexFetched) +
+                             "\nixoffset=" + std::to_string(s.indexOffset) +
+                             "\nixrecords=" + std::to_string(s.indexRecords) +
+                             "\nixtrunc=" + (s.indexTruncated ? "1" : "0") + "\n";
     const std::string path = metaPath(s.id), tmp = path + ".tmp";
     File f = sd().open(tmp.c_str(), "w");
     if (!f) return false;
@@ -135,7 +153,8 @@ bool commitDownload(int id) {
 }
 
 void removeFiles(int id) {
-    for (const std::string& p : {icsPath(id), tmpPath(id), metaPath(id), metaPath(id) + ".tmp"})
+    for (const std::string& p : {icsPath(id), tmpPath(id), metaPath(id), metaPath(id) + ".tmp", occPath(id),
+                                 occPath(id) + ".tmp", txtPath(id), txtPath(id) + ".tmp"})
         if (sd().exists(p.c_str())) sd().remove(p.c_str());
 }
 

@@ -440,6 +440,14 @@ size_t Calendar::footprint(const Event& e) {
 void Calendar::endEvent() {
     Event& e = ev_;
     if (!e.start.valid) return;
+    if (e.recurrenceId.valid && !onEvent && overrideKeys_.size() < 5000) {
+        overrideKeys_.push_back({e.uid, e.recurrenceId});
+        overridesReady_ = false;
+    }
+    if (collectOnly) {
+        ev_ = Event();
+        return;
+    }
     // Drop one-off events that are long over (the window can only be a little off
     // here, as time zones may be defined later in the file: keep two days' slack).
     if (keepAfter != INT64_MIN) {
@@ -460,6 +468,11 @@ void Calendar::endEvent() {
         if (!repeats && e.start.wall() > limit && (!e.recurrenceId.valid || e.recurrenceId.wall() > limit + 7 * kDay))
             return;
         if (repeats && e.start.wall() > limit) return;  // repeats, but starts later
+    }
+    if (onEvent) {
+        onEvent(e);
+        ev_ = Event();
+        return;
     }
     const size_t size = footprint(e);
     if (events_.size() >= maxEvents || bytes_ + size > maxBytes) {
@@ -562,72 +575,90 @@ int64_t Calendar::toUtc(const DateTime& dt, int localOffset) const {
 
 // ---------------------------------------------------------------- expansion
 
+void Calendar::adoptZones(Calendar& pass1) {
+    zones_ = std::move(pass1.zones_);
+    overrideKeys_ = std::move(pass1.overrideKeys_);
+    overridesReady_ = false;
+    transitions_.clear();
+}
+
+void Calendar::buildOverrides(int localOffset) const {
+    if (overridesReady_ && overridesOffset_ == localOffset) return;
+    overridden_.clear();
+    for (auto& k : overrideKeys_) overridden_.insert(k.first + "\t" + std::to_string(toUtc(k.second, localOffset)));
+    overridesReady_ = true;
+    overridesOffset_ = localOffset;
+}
+
+void Calendar::expandEvent(const Event& e, uint32_t index, int64_t from, int64_t to, int localOffset,
+                           const std::function<bool(const Occurrence&)>& fn) const {
+    if (e.cancelled) return;
+    buildOverrides(localOffset);
+    const bool allDay = e.start.dateOnly;
+    const int64_t start = toUtc(e.start, localOffset);
+    int64_t dur;
+    if (e.end.valid) dur = toUtc(e.end, localOffset) - start;
+    else if (e.duration >= 0) dur = e.duration;
+    else dur = allDay ? kDay : 0;
+    if (dur < 0) dur = 0;
+
+    bool stop = false;
+    auto add = [&](int64_t s) {
+        if (stop) return;
+        const int64_t en = s + dur;
+        if (s < to && (en > from || (dur == 0 && s >= from)) && !fn({s, en, allDay, index})) stop = true;
+    };
+    if (e.recurrenceId.valid || (e.rule.freq == Rule::None && e.rdates.empty())) {
+        add(start);
+        return;
+    }
+
+    // repeating
+    std::set<int64_t> excluded, excludedDays;
+    for (const DateTime& x : e.exdates) {
+        if (x.dateOnly) excludedDays.insert(daysFromCivil(x.y, x.m, x.d));
+        else excluded.insert(toUtc(x, localOffset));
+    }
+    const std::string prefix = e.uid + "\t";
+    auto instance = [&](int64_t s, int64_t wall) {
+        if (excluded.count(s) || excludedDays.count(wall >= 0 ? wall / kDay : (wall - kDay + 1) / kDay)) return;
+        if (!overridden_.empty() && overridden_.count(prefix + std::to_string(s))) return;
+        add(s);
+    };
+    int64_t until = INT64_MAX;
+    if (e.rule.until.valid) {
+        until = toUtc(e.rule.until, localOffset);
+        if (e.rule.until.dateOnly) until += kDay - 1;
+    }
+    if (e.rule.freq != Rule::None) {
+        expandRule(e.start, e.rule, to - localOffset + 2 * kDay, [&](int64_t wall) {
+            if (wall + dur + 3 * kDay < from) return true;  // long before the window: skip the time zone work
+            DateTime dt = e.start;
+            const int64_t days = wall >= 0 ? wall / kDay : (wall - kDay + 1) / kDay;
+            civilFromDays(days, dt.y, dt.m, dt.d);
+            const int64_t s = toUtc(dt, localOffset);
+            if (s > until) return false;
+            instance(s, wall);
+            return s < to && !stop;
+        });
+    } else {
+        instance(start, e.start.wall());
+    }
+    for (const DateTime& r : e.rdates) {
+        DateTime dt = r;
+        if (!dt.utc && !dt.dateOnly && dt.tzid.empty()) dt.tzid = e.start.tzid;
+        instance(toUtc(dt, localOffset), dt.wall());
+    }
+}
+
 std::vector<Occurrence> Calendar::expand(int64_t from, int64_t to, int localOffset, size_t maxCount) const {
     std::vector<Occurrence> out;
     const size_t hardCap = maxCount * 2 + 64;  // collected before sorting and cutting to maxCount
-
-    // instances replaced by a RECURRENCE-ID override: "uid\tutc"
-    std::set<std::string> overridden;
-    for (const Event& e : events_)
-        if (e.recurrenceId.valid) overridden.insert(e.uid + "\t" + std::to_string(toUtc(e.recurrenceId, localOffset)));
-
-    for (uint32_t i = 0; i < events_.size() && out.size() < hardCap; i++) {
-        const Event& e = events_[i];
-        if (e.cancelled) continue;
-        const bool allDay = e.start.dateOnly;
-        const int64_t start = toUtc(e.start, localOffset);
-        int64_t dur;
-        if (e.end.valid) dur = toUtc(e.end, localOffset) - start;
-        else if (e.duration >= 0) dur = e.duration;
-        else dur = allDay ? kDay : 0;
-        if (dur < 0) dur = 0;
-
-        auto add = [&](int64_t s) {
-            const int64_t en = s + dur;
-            if (s < to && (en > from || (dur == 0 && s >= from))) out.push_back({s, en, allDay, i});
-        };
-        if (e.recurrenceId.valid || (e.rule.freq == Rule::None && e.rdates.empty())) {
-            add(start);
-            continue;
-        }
-
-        // repeating
-        std::set<int64_t> excluded, excludedDays;
-        for (const DateTime& x : e.exdates) {
-            if (x.dateOnly) excludedDays.insert(daysFromCivil(x.y, x.m, x.d));
-            else excluded.insert(toUtc(x, localOffset));
-        }
-        const std::string prefix = e.uid + "\t";
-        auto instance = [&](int64_t s, int64_t wall) {
-            if (excluded.count(s) || excludedDays.count(wall >= 0 ? wall / kDay : (wall - kDay + 1) / kDay)) return;
-            if (!overridden.empty() && overridden.count(prefix + std::to_string(s))) return;
-            add(s);
-        };
-        int64_t until = INT64_MAX;
-        if (e.rule.until.valid) {
-            until = toUtc(e.rule.until, localOffset);
-            if (e.rule.until.dateOnly) until += kDay - 1;
-        }
-        if (e.rule.freq != Rule::None) {
-            expandRule(e.start, e.rule, to - localOffset + 2 * kDay, [&](int64_t wall) {
-                if (wall + dur + 3 * kDay < from) return true;  // long before the window: skip the time zone work
-                DateTime dt = e.start;
-                const int64_t days = wall >= 0 ? wall / kDay : (wall - kDay + 1) / kDay;
-                civilFromDays(days, dt.y, dt.m, dt.d);
-                const int64_t s = toUtc(dt, localOffset);
-                if (s > until) return false;
-                instance(s, wall);
-                return s < to && out.size() < hardCap;
-            });
-        } else {
-            instance(start, e.start.wall());
-        }
-        for (const DateTime& r : e.rdates) {
-            DateTime dt = r;
-            if (!dt.utc && !dt.dateOnly && dt.tzid.empty()) dt.tzid = e.start.tzid;
-            instance(toUtc(dt, localOffset), dt.wall());
-        }
-    }
+    for (uint32_t i = 0; i < events_.size() && out.size() < hardCap; i++)
+        expandEvent(events_[i], i, from, to, localOffset, [&](const Occurrence& o) {
+            out.push_back(o);
+            return out.size() < hardCap;
+        });
     std::sort(out.begin(), out.end(), [](const Occurrence& a, const Occurrence& b) {
         if (a.start != b.start) return a.start < b.start;
         if (a.allDay != b.allDay) return a.allDay;

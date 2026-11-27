@@ -296,6 +296,12 @@ its own colour. The calendars are read-only here.
 
 The app needs a **microSD card**: each calendar is saved in `/cardputerOS/calendar/`
 as it was downloaded (`<n>.ics`, plus `<n>.meta` with the time it was last checked).
+Calendars are downloaded one at a time and written to the card in 4 KB batches. A
+calendar is never held in memory as a whole: after each download it is read twice as a
+stream and turned into an index on the card (`<n>.occ`: one small record per event in
+the next months, `<n>.txt`: the event texts), and the agenda keeps only two weeks of
+events in memory, loading the next two weeks from the card as you scroll. Descriptions
+are only read when you open an event.
 The links usually contain a private token, so they are stored encrypted with the other
 secrets.
 
@@ -361,7 +367,7 @@ The agenda covers the last 7 days and the next 120. Repeating events (daily, wee
 monthly, yearly rules with intervals, counts, end dates, weekdays such as "last Friday",
 exceptions and moved or cancelled single dates) and all-day and multi-day events are
 shown; times are converted from the calendar's time zone to the one set in Settings.
-Events that already ended are grey. Up to 500 occurrences per calendar are kept.
+Events that already ended are grey. Up to 4000 occurrences per calendar are indexed.
 Certificates work as described for Notes; a server seen for the first time, or a
 changed certificate, is only accepted when you update with `r` (the background check
 cannot ask and reports an error instead).

@@ -28,6 +28,14 @@ project uses [Semantic Versioning](https://semver.org/).
   Wi-Fi network by itself (without blocking the agenda) and disconnects again
   once the downloads are done, unless the connection was already up.
 
+### Changed
+
+- **Calendar**: calendars are no longer held in memory. Downloads are written to
+  the SD card in 4 KB batches, one calendar at a time; each calendar is then
+  turned into an index on the card in two streaming passes (`<n>.occ`, `<n>.txt`),
+  and the agenda loads two weeks at a time from those files as you scroll.
+  Descriptions are read when an event is opened.
+
 ### Fixed
 
 - **Calendar**: a large calendar no longer crashes the device after it is

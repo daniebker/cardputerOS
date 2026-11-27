@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -304,6 +305,55 @@ void test_outlook_zone_from_1601() {
     TEST_ASSERT_EQUAL((long long)utc(2027, 1, 1, 8), (long long)occ[1].start);
 }
 
+void test_streaming_two_passes_match_in_memory() {
+    // the time zone comes after the events: only known after a first pass
+    const std::string text = std::string("BEGIN:VCALENDAR\r\n") +
+                             "BEGIN:VEVENT\r\nUID:s\r\nSUMMARY:Standup\r\nDTSTART;TZID=Europe/Berlin:20261023T090000\r\n"
+                             "DURATION:PT15M\r\nRRULE:FREQ=DAILY;COUNT=5\r\nEND:VEVENT\r\n"
+                             "BEGIN:VEVENT\r\nUID:s\r\nSUMMARY:Standup (late)\r\nRECURRENCE-ID;TZID=Europe/Berlin:20261024T090000\r\n"
+                             "DTSTART;TZID=Europe/Berlin:20261024T110000\r\nDURATION:PT15M\r\nEND:VEVENT\r\n"
+                             "BEGIN:VEVENT\r\nUID:o\r\nSUMMARY:Old\r\nDTSTART:20200101T090000Z\r\nEND:VEVENT\r\n" +
+                             kBerlin + "END:VCALENDAR\r\n";
+    const int64_t from = utc(2026, 10, 1), to = utc(2026, 11, 1);
+    Calendar mem = parse(text);
+    auto expected = mem.expand(from, to, 0, 100);
+    TEST_ASSERT_EQUAL(5, (int)expected.size());
+
+    Calendar pass1;
+    pass1.collectOnly = true;
+    pass1.feed(text.data(), text.size());
+    pass1.finish();
+    TEST_ASSERT_EQUAL(0, (int)pass1.events().size());
+
+    Calendar pass2;
+    pass2.adoptZones(pass1);
+    pass2.keepAfter = from;
+    pass2.keepBefore = to;
+    std::vector<Occurrence> got;
+    std::vector<std::string> titles;
+    pass2.onEvent = [&](const Event& e) {
+        pass2.expandEvent(e, (uint32_t)titles.size(), from, to, 0, [&](const Occurrence& o) {
+            got.push_back(o);
+            return true;
+        });
+        titles.push_back(e.summary);
+    };
+    for (size_t i = 0; i < text.size(); i += 13) pass2.feed(text.data() + i, std::min<size_t>(13, text.size() - i));
+    pass2.finish();
+    TEST_ASSERT_EQUAL(0, (int)pass2.events().size());  // nothing kept
+    std::sort(got.begin(), got.end(), [](const Occurrence& a, const Occurrence& b) { return a.start < b.start; });
+    TEST_ASSERT_EQUAL((int)expected.size(), (int)got.size());
+    for (size_t i = 0; i < got.size(); i++) {
+        TEST_ASSERT_EQUAL((long long)expected[i].start, (long long)got[i].start);
+        TEST_ASSERT_EQUAL((long long)expected[i].end, (long long)got[i].end);
+    }
+    TEST_ASSERT_EQUAL((long long)utc(2026, 10, 23, 7), (long long)got[0].start);  // summer time
+    TEST_ASSERT_EQUAL((long long)utc(2026, 10, 24, 9), (long long)got[1].start);  // the moved one
+    TEST_ASSERT_EQUAL_STRING("Standup (late)", titles[got[1].event].c_str());
+    TEST_ASSERT_EQUAL((long long)utc(2026, 10, 26, 8), (long long)got[3].start);  // winter time
+    TEST_ASSERT_EQUAL(2, (int)titles.size());  // the old event was not even handed over
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_dates);
@@ -315,5 +365,6 @@ int main() {
     RUN_TEST(test_window_limits_and_memory_bounds);
     RUN_TEST(test_memory_budget_and_future_window);
     RUN_TEST(test_outlook_zone_from_1601);
+    RUN_TEST(test_streaming_two_passes_match_in_memory);
     return UNITY_END();
 }

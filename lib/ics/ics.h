@@ -16,7 +16,9 @@
 #include <cstddef>
 #include <climits>
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -108,6 +110,19 @@ public:
     // UTC seconds of a date-time from this file.
     int64_t toUtc(const DateTime& dt, int localOffset) const;
 
+    // ---- streaming: memory independent of the number of events ----
+    // Pass 1 (collectOnly): read the file to learn its time zones and which
+    // occurrences are replaced (RECURRENCE-ID); no events are kept.
+    bool collectOnly = false;
+    // Pass 2: adoptZones(pass1) and set onEvent: each event is handed over once
+    // it is parsed (and within keepAfter / keepBefore) and not kept.
+    std::function<void(const Event&)> onEvent;
+    void adoptZones(Calendar& pass1);
+    // The occurrences of one event overlapping [from, to), in order; `fn` returns
+    // false to stop. `index` is passed on in Occurrence::event.
+    void expandEvent(const Event& e, uint32_t index, int64_t from, int64_t to, int localOffset,
+                     const std::function<bool(const Occurrence&)>& fn) const;
+
 private:
     struct Observance {
         DateTime start;  // local time, in offsetFrom
@@ -139,6 +154,12 @@ private:
     std::string name_, raw_, logical_;
     bool sawCalendar_ = false, truncated_ = false;
     size_t bytes_ = 0;
+    // occurrences replaced by a RECURRENCE-ID event: uid and the original start
+    std::vector<std::pair<std::string, DateTime>> overrideKeys_;
+    mutable std::set<std::string> overridden_;  // "uid\tUTC start", built from overrideKeys_
+    mutable bool overridesReady_ = false;
+    mutable int overridesOffset_ = 0;
+    void buildOverrides(int localOffset) const;
     // zone transitions by year: "tzid\tyear" -> (onset wall time, offset after it), sorted
     mutable std::map<std::string, std::vector<std::pair<int64_t, int>>> transitions_;
 };
