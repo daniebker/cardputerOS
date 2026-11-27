@@ -7,7 +7,7 @@
 namespace {
 constexpr int kMaxRedirects = 5;
 constexpr size_t kBufferSize = 4096;
-constexpr uint32_t kTaskStack = 16384;  // TLS handshake
+constexpr uint32_t kTaskStack = 20480;  // the TLS handshake is stack hungry
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)tolower((unsigned char)c);

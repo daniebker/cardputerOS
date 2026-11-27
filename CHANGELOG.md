@@ -28,6 +28,15 @@ project uses [Semantic Versioning](https://semver.org/).
   Wi-Fi network by itself (without blocking the agenda) and disconnects again
   once the downloads are done, unless the connection was already up.
 
+### Fixed
+
+- **Calendar**: a large calendar no longer crashes the device after it is
+  downloaded. Reading it keeps within the free memory (events outside the
+  agenda's window are skipped, and only part of a calendar that is still too
+  large is shown, with a note under `c` → the calendar → Info); downloads wait
+  until there is memory for the TLS connection. Time zones defined from 1601
+  (Outlook / Exchange) are converted much faster.
+
 ## [0.9.0] - 2026-11-26
 
 ### Added

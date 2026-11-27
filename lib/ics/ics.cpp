@@ -428,6 +428,15 @@ void Calendar::logicalLine(const std::string& line) {
     }
 }
 
+size_t Calendar::footprint(const Event& e) {
+    // the event in the vector (counted twice: the vector grows by doubling), its
+    // text on the heap, and its lists
+    auto str = [](const std::string& x) { return x.size() > 15 ? x.size() + 1 : 0; };
+    return 2 * sizeof(Event) + str(e.uid) + str(e.summary) + str(e.location) + str(e.description) +
+           (e.exdates.size() + e.rdates.size()) * sizeof(DateTime) +
+           (e.rule.byDay.size() * 8 + (e.rule.byMonthDay.size() + e.rule.byMonth.size() + e.rule.bySetPos.size()) * 4);
+}
+
 void Calendar::endEvent() {
     Event& e = ev_;
     if (!e.start.valid) return;
@@ -444,17 +453,69 @@ void Calendar::endEvent() {
             return;
         if (repeats && e.rule.until.valid && e.rdates.empty() && e.rule.until.wall() + 7 * kDay < limit) return;
     }
-    if (events_.size() >= maxEvents) {
+    // ... and one-off events that start after the window
+    if (keepBefore != INT64_MAX) {
+        const bool repeats = e.rule.freq != Rule::None || !e.rdates.empty();
+        const int64_t limit = keepBefore + 2 * kDay;
+        if (!repeats && e.start.wall() > limit && (!e.recurrenceId.valid || e.recurrenceId.wall() > limit + 7 * kDay))
+            return;
+        if (repeats && e.start.wall() > limit) return;  // repeats, but starts later
+    }
+    const size_t size = footprint(e);
+    if (events_.size() >= maxEvents || bytes_ + size > maxBytes) {
         truncated_ = true;
         return;
     }
+    bytes_ += size;
     events_.push_back(std::move(e));
     ev_ = Event();
 }
 
 // ---------------------------------------------------------------- time zones
 
-int Calendar::zoneOffset(const Zone& z, int64_t wall) const {
+int Calendar::zoneOffset(const std::string& id, const Zone& z, int64_t wall) const {
+    int y, m, d;
+    civilFromDays(wall >= 0 ? wall / kDay : (wall - kDay + 1) / kDay, y, m, d);
+    const std::string key = id + "\t" + std::to_string(y);
+    auto it = transitions_.find(key);
+    if (it == transitions_.end()) {
+        if (transitions_.size() > 64) transitions_.clear();  // bound the cache
+        const int64_t yearStart = daysFromCivil(y, 1, 1) * kDay, yearEnd = daysFromCivil(y + 1, 1, 1) * kDay;
+        std::vector<std::pair<int64_t, int>> list;
+        list.push_back({INT64_MIN, slowOffset(z, yearStart - 1)});  // in effect when the year starts
+        for (const Observance& o : z.obs) {
+            auto add = [&](int64_t w) {
+                if (w >= yearStart && w < yearEnd) list.push_back({w, o.offsetTo});
+            };
+            if (o.rule.freq != Rule::None) {
+                int64_t until = INT64_MAX;
+                if (o.rule.until.valid) until = o.rule.until.wall() + (o.rule.until.utc ? o.offsetFrom : 0);
+                DateTime start = o.start;
+                // a yearly rule from long ago (Outlook uses 1601): start in this year
+                if (o.rule.freq == Rule::Yearly && o.rule.interval == 1 && o.rule.count == 0 && start.y < y) {
+                    start.y = y;
+                    if (start.d > daysInMonth(start.y, start.m)) start.d = daysInMonth(start.y, start.m);
+                }
+                expandRule(start, o.rule, yearEnd, [&](int64_t w) {
+                    if (w > until) return false;
+                    add(w);
+                    return true;
+                });
+            } else {
+                add(o.start.wall());
+            }
+            for (const DateTime& r : o.rdates) add(r.wall());
+        }
+        std::sort(list.begin(), list.end());
+        it = transitions_.emplace(key, std::move(list)).first;
+    }
+    int offset = it->second.front().second;
+    for (auto& t : it->second)
+        if (t.first <= wall) offset = t.second;
+    return offset;
+}
+
+int Calendar::slowOffset(const Zone& z, int64_t wall) const {
     // The observance that started last before `wall` (onsets are in local time).
     int64_t best = INT64_MIN;
     int offset = 0;
@@ -494,7 +555,7 @@ int64_t Calendar::toUtc(const DateTime& dt, int localOffset) const {
     if (dt.utc) return w;
     if (dt.dateOnly || dt.tzid.empty()) return w - localOffset;
     auto it = zones_.find(dt.tzid);
-    if (it != zones_.end() && !it->second.obs.empty()) return w - zoneOffset(it->second, w);
+    if (it != zones_.end() && !it->second.obs.empty()) return w - zoneOffset(it->first, it->second, w);
     if (isUtcName(dt.tzid)) return w;
     return w - localOffset;  // unknown zone: assume the device's
 }
@@ -503,7 +564,7 @@ int64_t Calendar::toUtc(const DateTime& dt, int localOffset) const {
 
 std::vector<Occurrence> Calendar::expand(int64_t from, int64_t to, int localOffset, size_t maxCount) const {
     std::vector<Occurrence> out;
-    const size_t hardCap = maxCount * 4 + 64;  // collected before sorting and cutting to maxCount
+    const size_t hardCap = maxCount * 2 + 64;  // collected before sorting and cutting to maxCount
 
     // instances replaced by a RECURRENCE-ID override: "uid\tutc"
     std::set<std::string> overridden;

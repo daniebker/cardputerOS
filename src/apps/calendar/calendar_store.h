@@ -27,6 +27,7 @@ struct CalendarSub {
     int64_t checkedAt = 0;  // last time the server confirmed or sent a copy (UTC seconds; 0 = never)
     int64_t fetchedAt = 0;  // last time a new copy was downloaded
     bool cached = false;    // <id>.ics exists
+    std::string note;       // a problem reading the copy (e.g. too large), not saved
 
     std::string title() const { return !name.empty() ? name : !feedName.empty() ? feedName : "Calendar " + std::to_string(id); }
 };

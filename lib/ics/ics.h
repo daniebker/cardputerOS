@@ -10,9 +10,11 @@
 // BYWEEKNO / BYYEARDAY / BYHOUR and finer rules (ignored).
 //
 // Memory is bounded: text fields are cut to `maxText`, overlong lines are cut,
-// and one-off events that ended before `keepAfter` are dropped while parsing.
+// one-off events outside [keepAfter, keepBefore) are dropped while parsing, and
+// no more events are kept once they use about `maxBytes`.
 #pragma once
 #include <cstddef>
+#include <climits>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -85,13 +87,16 @@ public:
     // Limits, set before feeding.
     size_t maxText = 400;       // bytes kept of SUMMARY / LOCATION / DESCRIPTION
     size_t maxEvents = 3000;    // events kept (later ones are dropped, see truncated())
+    size_t maxBytes = SIZE_MAX; // memory the kept events may use (approximately)
     int64_t keepAfter = INT64_MIN;  // drop one-off events that ended before (UTC seconds)
+    int64_t keepBefore = INT64_MAX; // drop one-off events that start after (UTC seconds)
 
     void feed(const char* data, size_t len);
     void finish();  // after the last feed()
 
     bool sawCalendar() const { return sawCalendar_; }  // BEGIN:VCALENDAR was seen
     bool truncated() const { return truncated_; }
+    size_t bytesUsed() const { return bytes_; }
     const std::string& name() const { return name_; }  // X-WR-CALNAME
     const std::vector<Event>& events() const { return events_; }
 
@@ -117,7 +122,11 @@ private:
     void physicalLine(std::string& line);
     void logicalLine(const std::string& line);
     void endEvent();
-    int zoneOffset(const Zone& z, int64_t wall) const;
+    int zoneOffset(const std::string& id, const Zone& z, int64_t wall) const;
+    // The offset at `wall` from every onset of every observance (slow when rules
+    // start long ago: used once per zone and year).
+    int slowOffset(const Zone& z, int64_t wall) const;
+    static size_t footprint(const Event& e);
     const std::string& top() const;
 
     std::vector<Event> events_;
@@ -129,6 +138,9 @@ private:
     Observance obs_;
     std::string name_, raw_, logical_;
     bool sawCalendar_ = false, truncated_ = false;
+    size_t bytes_ = 0;
+    // zone transitions by year: "tzid\tyear" -> (onset wall time, offset after it), sorted
+    mutable std::map<std::string, std::vector<std::pair<int64_t, int>>> transitions_;
 };
 
 // ---------------------------------------------------------------- implementation of expandRule

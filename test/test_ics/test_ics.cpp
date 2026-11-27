@@ -250,6 +250,60 @@ void test_window_limits_and_memory_bounds() {
     TEST_ASSERT_TRUE(small.truncated());
 }
 
+void test_memory_budget_and_future_window() {
+    std::string text = "BEGIN:VCALENDAR\r\n";
+    for (int d = 1; d <= 28; d++) {
+        char buf[200];
+        snprintf(buf, sizeof buf, "BEGIN:VEVENT\r\nUID:%d\r\nSUMMARY:Day %d\r\nDTSTART:202602%02dT120000Z\r\nEND:VEVENT\r\n", d, d, d);
+        text += buf;
+    }
+    text += "BEGIN:VEVENT\r\nUID:r\r\nDTSTART:20260225T090000Z\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT\r\n";
+    text += "END:VCALENDAR\r\n";
+    // one-off events after keepBefore (plus slack) are dropped, as is a series that starts later
+    Calendar c;
+    c.keepBefore = utc(2026, 2, 10);
+    c.feed(text.data(), text.size());
+    c.finish();
+    TEST_ASSERT_EQUAL(11, (int)c.events().size());  // 1st..11th (2 days of slack after the 10th)
+    TEST_ASSERT_FALSE(c.truncated());
+
+    // the memory budget stops the parser from keeping more
+    Calendar full;
+    full.feed(text.data(), text.size());
+    full.finish();
+    const size_t all = full.bytesUsed();
+    Calendar half;
+    half.maxBytes = all / 2;
+    half.feed(text.data(), text.size());
+    half.finish();
+    TEST_ASSERT_TRUE(half.truncated());
+    TEST_ASSERT_TRUE(half.bytesUsed() <= all / 2);
+    TEST_ASSERT_TRUE(half.events().size() < full.events().size());
+}
+
+void test_outlook_zone_from_1601() {
+    // Outlook / Exchange define their zones from 1601
+    const std::string text =
+        "BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:W. Europe Standard Time\r\n"
+        "BEGIN:STANDARD\r\nDTSTART:16010101T030000\r\nTZOFFSETFROM:+0200\r\nTZOFFSETTO:+0100\r\n"
+        "RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=10\r\nEND:STANDARD\r\n"
+        "BEGIN:DAYLIGHT\r\nDTSTART:16010101T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0200\r\n"
+        "RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=3\r\nEND:DAYLIGHT\r\nEND:VTIMEZONE\r\n"
+        "BEGIN:VEVENT\r\nUID:d\r\nDTSTART;TZID=W. Europe Standard Time:20200106T090000\r\n"
+        "DTEND;TZID=W. Europe Standard Time:20200106T093000\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    Calendar c = parse(text);
+    auto occ = c.expand(utc(2026, 3, 27), utc(2026, 3, 31), 0, 100);
+    TEST_ASSERT_EQUAL(4, (int)occ.size());
+    TEST_ASSERT_EQUAL((long long)utc(2026, 3, 27, 8), (long long)occ[0].start);  // winter time
+    TEST_ASSERT_EQUAL((long long)utc(2026, 3, 29, 7), (long long)occ[2].start);  // summer time from 29 March
+    TEST_ASSERT_EQUAL((long long)utc(2026, 3, 30, 7), (long long)occ[3].start);
+    // and the start of a year uses the offset in effect then
+    occ = c.expand(utc(2026, 12, 31), utc(2027, 1, 2), 0, 100);
+    TEST_ASSERT_EQUAL(2, (int)occ.size());
+    TEST_ASSERT_EQUAL((long long)utc(2027, 1, 1, 8), (long long)occ[1].start);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_dates);
@@ -259,5 +313,7 @@ int main() {
     RUN_TEST(test_rules);
     RUN_TEST(test_overrides_and_cancelled);
     RUN_TEST(test_window_limits_and_memory_bounds);
+    RUN_TEST(test_memory_budget_and_future_window);
+    RUN_TEST(test_outlook_zone_from_1601);
     return UNITY_END();
 }

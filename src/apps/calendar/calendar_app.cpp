@@ -14,7 +14,10 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <esp_heap_caps.h>
+
 #include <map>
+#include <new>
 #include <memory>
 #include <string>
 #include <vector>
@@ -407,15 +410,38 @@ private:
     // Parses one calendar's copy (inside an SdSession) into its entries.
     void parse(CalendarSub& s) {
         parsed_.erase(s.id);
+        s.note.clear();
+        // A calendar can hold far more events than fit in memory: the parser keeps
+        // within a budget, and running out anyway is reported instead of crashing.
+        try {
+            parseFile(s);
+        } catch (const std::bad_alloc&) {
+            parsed_.erase(s.id);
+            s.note = "Too large for the memory of the device: not shown. Removing old or repeating events from "
+                     "the calendar may help.";
+        }
+    }
+
+    // Memory the events of one calendar may use while it is read.
+    static size_t parseBudget() {
+        const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        const size_t total = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+        size_t budget = std::min(total / 3, largest / 2);
+        return std::max<size_t>(8 * 1024, std::min<size_t>(budget, 96 * 1024));
+    }
+
+    void parseFile(CalendarSub& s) {
         File f = hal::sdFs().open(calstore::icsPath(s.id).c_str(), "r");
         if (!f) return;
-        if (f.size() > 64 * 1024) ui::busy("Reading " + s.title() + "...");
+        if (f.size() > 64 * 1024 && isForeground()) ui::busy("Reading " + s.title() + "...");
         const int64_t today = clockValid() ? localDay(now()) : 0;
         const int64_t from = dayStart(today - kPastDays), to = dayStart(today + kFutureDays + 1);
         ics::Calendar cal;
         cal.keepAfter = from;
+        cal.keepBefore = to;
         cal.maxText = 300;
         cal.maxEvents = 1500;
+        cal.maxBytes = parseBudget();
         char buf[1024];
         for (;;) {
             const int n = f.read((uint8_t*)buf, sizeof buf);
@@ -432,6 +458,8 @@ private:
             return;
         }
         s.feedName = cal.name();
+        if (cal.truncated())
+            s.note = "Too many events for the memory of the device: only part of the calendar is shown.";
         Parsed p;
         if (clockValid()) {
             std::map<uint32_t, uint32_t> infoOf;  // event index -> info index
@@ -802,10 +830,19 @@ private:
         }
         jobHead_.clear();
         jobWriteOk_ = true;
+        // A TLS connection needs about 45 KB in one piece, plus the task's stack.
+        if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 48 * 1024) {
+            jobFile_.close();
+            hal::sdFs().remove(calstore::tmpPath(id).c_str());
+            jobSession_.reset();
+            s->error = "Not enough free memory to download now. Close other apps (e.g. Mesh, SSH) and press r.";
+            return redraw();
+        }
         job_ = FetchJob::start(request(*s));
         if (!job_) {
             jobFile_.close();
             jobSession_.reset();
+            hal::sdFs().remove(calstore::tmpPath(id).c_str());
             s->error = "Not enough memory to download now.";
             return redraw();
         }
@@ -976,11 +1013,12 @@ private:
             }
             applyResult(s, r, head, writeOk);
             if (!s.error.empty()) failures += ui::displayable(s.title()) + ": " + s.error + "\n";
+            else if (!s.note.empty()) failures += ui::displayable(s.title()) + ": " + s.note + "\n";
         }
         releaseWifi();
         rebuild();
         os::refreshStatus();
-        if (!failures.empty()) ui::alert("Some calendars were not updated", failures + "The saved copies stay in use.");
+        if (!failures.empty()) ui::alert("Calendar update", failures + "The saved copies stay in use.");
         redraw();
     }
 
@@ -994,6 +1032,7 @@ private:
             for (auto& s : subs_) {
                 std::string line = ui::displayable(s.title());
                 if (!s.error.empty()) line += "  (error)";
+                else if (!s.note.empty()) line += "  (too large)";
                 else if (!s.cached) line += "  (not downloaded)";
                 else line += "  (" + ageText(s.checkedAt) + ")";
                 items.push_back(line);
@@ -1095,6 +1134,7 @@ private:
                 std::string text = "Last checked: " + ageText(s->checkedAt) + "\nLast changed: " + ageText(s->fetchedAt);
                 auto it = parsed_.find(id);
                 if (it != parsed_.end()) text += "\nEvents shown: " + std::to_string(it->second.entries.size());
+                if (!s->note.empty()) text += "\n" + s->note;
                 if (!s->error.empty()) text += "\nLast error: " + s->error;
                 ui::alert(ui::displayable(s->title()).c_str(), text);
                 break;
