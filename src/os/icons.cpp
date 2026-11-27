@@ -148,6 +148,23 @@ void tiles(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     }
 }
 
+void checklist(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    const int px = x + s / 8, w = s - 2 * (s / 8);
+    g.fillRoundRect(px, y, w, s, 5, fg);
+    const int box = s / 6, rowH = (s - 8) / 3;
+    for (int i = 0; i < 3; i++) {
+        const int by = y + 6 + i * rowH + (rowH - box) / 2, bx = px + 6;
+        g.fillRoundRect(bx, by, box, box, 2, dr::darkest);
+        if (i < 2) {  // ticked
+            for (int t = 0; t < 2; t++) {
+                g.drawLine(bx + 2, by + box / 2 + t, bx + box / 2 - 1, by + box - 3 + t, dr::green);
+                g.drawLine(bx + box / 2 - 1, by + box - 3 + t, bx + box - 2, by + 2 + t, dr::green);
+            }
+        }
+        g.fillRect(bx + box + 5, by + box / 2 - 1, w - box - 18 - (i == 2 ? 8 : 0), 3, i < 2 ? dr::comment : dr::darker);
+    }
+}
+
 void folder(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t, const uint32_t* colors, int count) {
     const int top = y + s / 6, tab = s / 3;
     g.fillRoundRect(x, top, tab + 6, s / 4, 4, fg);  // tab

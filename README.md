@@ -103,7 +103,7 @@ SSH terminal:
 ## Passphrase and encryption
 
 Saved secrets are stored encrypted: Wi-Fi passwords, SSH hosts and their passwords,
-the WebDAV passwords of Notes and Journal, and the SSH private key. On the first start
+the WebDAV passwords of Notes, Journal and Tasks, and the SSH private key. On the first start
 with this version you choose a passphrase (at least 6 characters); any secrets already
 stored are encrypted with it right away. From then on the passphrase is asked for each
 time the Cardputer starts. Waking from sleep does not ask again. Until it is entered
@@ -232,6 +232,58 @@ unsynced entries, and on `opt`+`s`. If a day was changed both on the device and
 elsewhere, the entries of both versions are merged in time order, so nothing is lost;
 text added by other apps is kept. Other files in the folder are ignored. Certificates
 and the stored password work as described for Notes.
+
+## Tasks (Mindwtr)
+
+Launcher → **Tasks**. Shows and edits the tasks of a [Mindwtr](https://mindwtr.app)
+library. Mindwtr's WebDAV sync keeps everything in one `data.json` file in a WebDAV
+folder. Each time you open the app it connects to a saved Wi-Fi network (if it is not
+connected yet) and syncs: it downloads that file and writes your changes back to it, so
+they show up in Mindwtr after its next sync. If no saved network is in range, the app
+works offline and syncs as soon as Wi-Fi is back.
+
+The app needs a **microSD card**: the downloaded file and your unsynced changes are kept
+in `/cardputerOS/tasks/` on the card. Only the sync settings stay on the device (the
+password encrypted, like the other secrets). Without a card the app asks you to insert
+one; `r` tries again. Do not pull the card while the app shows "Please wait".
+
+1. In Mindwtr, set up **WebDAV sync** and sync once, so the folder has a `data.json`.
+2. In Tasks press `opt`+`a` and enter the same folder address (e.g.
+   `https://HOST/remote.php/dav/files/USER/Mindwtr/`; the address of the `data.json`
+   file itself works too), the user name and password.
+
+| Keys | Action |
+|------|--------|
+| Tab / Left / Right, `1`–`7` | Switch view: Focus (next actions and anything due), Inbox, Next, Waiting, Someday, All, Done |
+| up / down | Move |
+| Enter | Open the task: title, status, due and start date, project, contexts, tags, notes, checklist |
+| Space or `x` | Mark done / reopen |
+| `n` | New task (in the view's status; `@context` and `#tag` words become contexts and tags) |
+| `e` | Edit the title |
+| `d` | Set the due date |
+| `s` | Set the status (inbox, next, waiting, someday, reference, done, archived) |
+| `fn`+Backspace (Delete) | Delete (moves it to Mindwtr's trash) |
+| `r` or `opt`+`s` | Sync now (connects to Wi-Fi first if needed) |
+| `opt`+`a` | Set the WebDAV folder |
+
+In a task, Enter changes the selected field and Esc or Backspace goes back. Dates can be
+typed as `today`, `tom`, `fri`, `+3`, `+2w`, `12-24`, `24.12`, `2026-12-24`, each with an
+optional time (`fri 14:30`, `tom 2pm`); an empty date removes it. Overdue tasks are red,
+tasks due today orange. Notes of more than one line are shown but cannot be edited here.
+
+Changes are saved on the device right away and uploaded a few seconds after the last
+one (and when you leave the app). Without Wi-Fi they wait and go up at the next sync;
+the header shows how many are waiting. Editing needs the clock to be set (Wi-Fi once
+after power-on).
+
+How it merges: the downloaded file is kept on the device as it is, and only the changed
+tasks are rewritten, so projects, settings and fields this app does not show are passed
+through untouched. Each change bumps the task's revision, as Mindwtr does, so Mindwtr
+takes it over. The upload only replaces the file if nobody changed it since it was
+downloaded; otherwise the newer file is downloaded and the changes are applied to it
+again. Not supported: Mindwtr's end-to-end encrypted sync, and creating the next copy of
+a repeating task when it is completed (complete those in Mindwtr). Certificates work as
+described for Notes; the password is stored encrypted.
 
 ## Mesh (Meshtastic)
 
@@ -376,12 +428,13 @@ lib/vim                  vi-style editor engine (portable, unit tested on the ho
 lib/dav                  WebDAV / HTTP parsing (portable, unit tested)
 lib/sudoku               Sudoku generator and solver (portable, unit tested)
 lib/journal              journal file format and merging (portable, unit tested)
+lib/mindwtr              streaming JSON and Mindwtr task edits for Tasks (portable, unit tested)
 lib/mesh                 Meshtastic client protocol and message store (portable, unit tested)
 lib/rogue                roguelike game rules (portable, unit tested with a bot player)
 lib/merge                sliding tile puzzle rules (portable, unit tested)
 lib/wardrive             wardriving device table and WiGLE CSV log (portable, unit tested)
 lib/vault                encryption of stored secrets (portable, unit tested)
-src/apps                 apps: settings, ssh, notes, journal, mesh, wardrive, sudoku, rogue, merge
+src/apps                 apps: settings, ssh, notes, journal, tasks, mesh, wardrive, sudoku, rogue, merge
 test/                    host-side unit tests
 ```
 

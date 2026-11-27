@@ -18,7 +18,7 @@ namespace {
 
 // Settings keys and files that hold secrets. Anything listed here that is still
 // in plain text (from before encryption existed) is encrypted on unlock.
-const char* const kKeys[] = {"wifi", "ssh_hosts", "dav_pass", "jr_pass"};
+const char* const kKeys[] = {"wifi", "ssh_hosts", "dav_pass", "jr_pass", "mw_pass"};
 const char* const kFiles[] = {"/ssh/id_ed25519", "/ssh/id_ecdsa", "/ssh/id_rsa"};
 const char* const kEraseAlso[] = {"/ssh/id_ed25519.pub"};  // useless without its private key
 constexpr const char* kRecordKey = "vault";

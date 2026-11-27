@@ -31,9 +31,22 @@ public:
                  const std::string& body, dav::HttpResponse& resp, std::string& err,
                  const dav::SinkFn& sink = nullptr);
 
+    // A request body read in pieces (e.g. from a file), for bodies too large for memory.
+    struct BodySource {
+        size_t size = 0;
+        std::function<bool()> rewind;                  // back to the start (for a retry)
+        std::function<int(uint8_t*, size_t)> read;     // bytes read, <= 0 on error
+    };
+    bool request(const char* method, const std::string& path, const std::vector<Header>& headers,
+                 const BodySource& body, dav::HttpResponse& resp, std::string& err,
+                 const dav::SinkFn& sink = nullptr);
+
     CertFn onCert;
 
 private:
+    bool send(const char* method, const std::string& path, const std::vector<Header>& headers, size_t bodyLen,
+              const std::function<bool(Client*)>& writeBody, dav::HttpResponse& resp, std::string& err,
+              const dav::SinkFn& sink);
     bool connect(std::string& err);
     bool connected();
 

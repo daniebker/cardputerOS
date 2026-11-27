@@ -198,6 +198,75 @@ bool connect(const std::string& ssidName, const std::string& pass, uint32_t time
     return true;
 }
 
+bool connectSaved(uint32_t timeoutMs, void (*idle)()) {
+    if (!begun) return false;
+    userDisconnected = false;
+    if (connected()) return true;
+    if (saved.empty()) return false;
+    const uint32_t t0 = millis();
+    auto timeLeft = [&]() { return millis() - t0 < timeoutMs; };
+    // the auto-connect logic may be joining a network right now: give it a moment
+    while (!target.empty() && !scanning && timeLeft() && WiFi.status() != WL_CONNECT_FAILED &&
+           WiFi.status() != WL_NO_SSID_AVAIL && millis() - t0 < 4000) {
+        if (connected()) return true;
+        if (idle) idle();
+        delay(20);
+    }
+    if (connected()) return true;
+    manualConnect = true;  // keep the auto-connect logic out of the way
+    // let a background scan (ours or an app's) finish, then scan
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && timeLeft()) {
+        if (idle) idle();
+        delay(20);
+    }
+    scanning = false;
+    WiFi.scanDelete();
+    std::vector<const Saved*> candidates;  // strongest first
+    {
+        std::vector<std::pair<int, const Saved*>> found;
+        const int n = WiFi.scanNetworks();
+        for (int i = 0; i < n; i++) {
+            const Saved* s = findSaved(WiFi.SSID(i).c_str());
+            if (s) found.push_back({WiFi.RSSI(i), s});
+        }
+        WiFi.scanDelete();
+        std::sort(found.begin(), found.end(), [](const std::pair<int, const Saved*>& a,
+                                                 const std::pair<int, const Saved*>& b) { return a.first > b.first; });
+        for (auto& f : found)
+            if (std::find(candidates.begin(), candidates.end(), f.second) == candidates.end()) candidates.push_back(f.second);
+    }
+    bool ok = false;
+    for (const Saved* s : candidates) {
+        if (!timeLeft()) break;
+        WiFi.disconnect();
+        delay(50);
+        target = s->ssid;
+        WiFi.begin(s->ssid.c_str(), s->pass.empty() ? nullptr : s->pass.c_str());
+        const uint32_t t1 = millis();
+        while (timeLeft() && millis() - t1 < 12000) {
+            const wl_status_t st = WiFi.status();
+            if (st == WL_CONNECTED) break;
+            // the driver reports these transiently; give it a little time before believing them
+            if ((st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) && millis() - t1 > 6000) break;
+            if (idle) idle();
+            delay(20);
+        }
+        if (connected()) {
+            ok = true;
+            break;
+        }
+    }
+    manualConnect = false;
+    if (!ok) {
+        WiFi.disconnect();
+        target.clear();
+        nextAttempt = millis() + 5000;
+        return false;
+    }
+    startNtp();
+    return true;
+}
+
 void holdScans(bool hold) {
     scansHeld = hold;
     // a scan of ours still running: its results now belong to whoever reads them

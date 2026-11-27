@@ -4,6 +4,19 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-11-26
+
+### Added
+
+- **Tasks**: the tasks of a Mindwtr library, synced through the `data.json` file
+  in Mindwtr's WebDAV folder. Downloaded when the app opens; views for focus,
+  inbox, next, waiting, someday, all and done tasks; add tasks, edit the title,
+  status, due and start dates, project, contexts, tags, notes and checklist,
+  mark tasks done and delete them. Opening the app connects to a saved Wi-Fi
+  network and syncs. Changes are uploaded a few seconds later (or at the next
+  sync when offline) and merged with changes made elsewhere. The data is kept
+  on the microSD card (`/cardputerOS/tasks/`).
+
 ## [0.8.0] - 2026-11-13
 
 ### Added
