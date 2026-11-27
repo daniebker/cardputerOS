@@ -294,6 +294,77 @@ Outlook / Office 365 calendar, a public iCloud calendar, or any other `https://`
 `webcal://` link to an `.ics` file. Several calendars can be shown together, each in
 its own colour. The calendars are read-only here.
 
+### Adding calendars
+
+You need a microSD card in the Cardputer, a saved Wi-Fi network (Settings → Wi-Fi) and
+the calendar's **iCal / ICS link**. Up to 8 calendars can be added.
+
+**1. Get the link.** It is the address other apps use to *subscribe* to the calendar
+(it usually ends in `.ics` or starts with `webcal://`):
+
+- **Google Calendar** (calendar.google.com on a computer): Settings → under *Settings
+  for my calendars* pick the calendar → *Integrate calendar* → copy **Secret address in
+  iCal format**. (The *Public address* only works if the calendar is made public.)
+- **Outlook.com / Microsoft 365** (Outlook on the web): Settings → Calendar → *Shared
+  calendars* → *Publish a calendar*: choose the calendar and *Can view all details*,
+  press *Publish* and copy the **ICS** link.
+- **iCloud** (Calendar on a Mac or iPhone, or icloud.com): share the calendar, switch on
+  **Public Calendar** and copy the `webcal://` link.
+- **Nextcloud**: in Calendar, the calendar's menu → *Share link* → copy the
+  **subscription link**.
+- **Others**: look for "iCal", "ICS", "subscribe" or "publish" in the calendar's
+  sharing settings.
+
+Treat a secret link like a password: anyone who has it can read the calendar. If it
+leaks, reset it in the calendar's settings and change it on the Cardputer (`c` → the
+calendar → **Change link**).
+
+**2a. Add it on the Cardputer.** Open **Calendar**, press `c` → **+ Add calendar**,
+type the link, answer *no* when asked about a user name and password (unless the feed
+needs one), and give the calendar a name (leave it empty to use the calendar's own
+name). It is downloaded straight away.
+
+**2b. Or add several from a computer** (easier, as the links are long). Put the SD card
+in your computer and create a plain text file `/cardputerOS/calendar/calendars.txt`
+(create the folders if they do not exist yet), with one calendar per line: an optional
+name, then the link. Empty lines and lines starting with `#` are ignored:
+
+```
+# name (optional)   link
+Work       https://calendar.google.com/calendar/ical/.../basic.ics
+Holidays:  webcal://example.com/holidays.ics
+https://example.com/team.ics
+```
+
+Put the card back and open **Calendar** (or, if it is already open, it notices the card
+within a few seconds; `c` → **Import from SD card** reads the file at any time). The
+app lists what it added and downloads the new calendars. Because the links contain a
+private token, they are then stored encrypted on the device and **the file is deleted
+from the card**. Lines it could not use (no link, or more than 8 calendars) are written
+back to the file with a note so you can fix them; links that are already subscribed are
+skipped.
+
+The file is also found at the top of the card or in `/cardputerOS/`, and under names such
+as `Calendars.txt`, `calendar.txt` or `calendars.txt.txt` (Windows hides the extension,
+so a file typed as `calendars.txt` often ends up with that name). Save it as plain text:
+UTF-8 or Notepad's "Unicode" both work; in TextEdit use Format → Make Plain Text first.
+A feed that needs a user name and password can be imported too; add the login
+afterwards with `c` → the calendar → **Change link**.
+
+**3. First download.** The first time the Cardputer talks to a server it shows the
+server's certificate fingerprint and asks whether to trust it: answer `y`. (This only
+happens when you add a calendar or press `r`; a check in the background cannot ask, so
+a calendar on a new server shows an error until you press `r`.) The calendar then
+appears in the agenda, in its own colour (`c` → the calendar → **Colour** changes it).
+
+**If a calendar does not show up**, press `c`: each calendar is listed with its state
+(`not downloaded`, `error`, or when it was last checked), and the calendar's **Info**
+shows the last error. Common causes: no saved Wi-Fi network in range, a link that is
+not the iCal / ICS address (the app says "did not return a calendar"), or a link that
+was reset in the calendar's settings (HTTP 404).
+
+### How calendars are stored and updated
+
 The app needs a **microSD card**: each calendar is saved in `/cardputerOS/calendar/`
 as it was downloaded (`<n>.ics`, plus `<n>.meta` with the time it was last checked).
 Calendars are downloaded one at a time and written to the card in 4 KB batches. A
@@ -323,6 +394,8 @@ app is left alone, and so is one in use when you leave the app before the downlo
 finished (another app may need it then). If no saved network is in range within 30
 seconds the app stops trying and shows `no Wi-Fi in range`.
 
+### Using the agenda
+
 | Keys | Action |
 |------|--------|
 | up / down, `fn`+`[` `]` | Move through the agenda |
@@ -330,38 +403,7 @@ seconds the app stops trying and shows `no Wi-Fi in range`.
 | `t` | Today (the next event that is not over yet) |
 | Enter | Event details: time, place and description (up / down scroll, Esc back) |
 | `r` or `opt`+`s` | Update all calendars now (connects to Wi-Fi first if needed) |
-| `c` or `opt`+`a` | Calendars: add, update, rename, change the link or colour, remove |
-
-To add one, press `c` → **+ Add calendar**, paste or type the link and give it a name
-(leave the name empty to use the calendar's own). If the link needs a user name and
-password (e.g. a private feed behind Basic authentication) say so when asked; most
-calendar links do not. The first download happens right away.
-
-**Adding calendars from a computer.** Calendar links are long, so instead of typing
-them you can put them in a text file on the card, `/cardputerOS/calendar/calendars.txt`,
-one calendar per line: an optional name, then the link. Empty lines and lines
-starting with `#` are ignored.
-
-```
-# name (optional)   link
-Work       https://calendar.google.com/calendar/ical/.../basic.ics
-Holidays:  webcal://example.com/holidays.ics
-https://example.com/team.ics
-```
-
-The app reads the file when it is opened, when the card is inserted while the app is
-open, or when you choose `c` → **Import from SD card**, which also tells you what it
-found if nothing could be imported. The file is also found at the top of the card or in
-`/cardputerOS/`, and under names such as `Calendars.txt`, `calendar.txt` or
-`calendars.txt.txt` (Windows hides the extension, so a file typed as `calendars.txt`
-often ends up with that name). Plain text is expected: UTF-8 or Notepad's "Unicode"
-(UTF-16) both work; save from TextEdit with Format → Make Plain Text. It adds the calendars that are not subscribed yet and downloads them right
-away (asking about each new server's certificate). Because the links usually contain a
-private token, they are then stored encrypted on the device and **the file is deleted
-from the card**. Lines that could not be used (no link, or more than 8 calendars) are
-written back to the file with a note, so you can fix them. A calendar that needs a user
-name and password can be imported this way too; add the login afterwards with `c` →
-the calendar → **Change link**.
+| `c` or `opt`+`a` | Calendars: add, import from the SD card, update, rename, change the link or colour, info, remove |
 
 The agenda covers the last 7 days and the next 120. Repeating events (daily, weekly,
 monthly, yearly rules with intervals, counts, end dates, weekdays such as "last Friday",
