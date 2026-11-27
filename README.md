@@ -103,7 +103,8 @@ SSH terminal:
 ## Passphrase and encryption
 
 Saved secrets are stored encrypted: Wi-Fi passwords, SSH hosts and their passwords,
-the WebDAV passwords of Notes, Journal and Tasks, and the SSH private key. On the first start
+the WebDAV passwords of Notes, Journal and Tasks, the Calendar links and passwords,
+and the SSH private key. On the first start
 with this version you choose a passphrase (at least 6 characters); any secrets already
 stored are encrypted with it right away. From then on the passphrase is asked for each
 time the Cardputer starts. Waking from sleep does not ask again. Until it is entered
@@ -284,6 +285,52 @@ downloaded; otherwise the newer file is downloaded and the changes are applied t
 again. Not supported: Mindwtr's end-to-end encrypted sync, and creating the next copy of
 a repeating task when it is completed (complete those in Mindwtr). Certificates work as
 described for Notes; the password is stored encrypted.
+
+## Calendar
+
+Launcher → **Calendar**. An agenda of calendars you subscribe to by their **.ics
+link**: the "Secret address in iCal format" of a Google calendar, a published
+Outlook / Office 365 calendar, a public iCloud calendar, or any other `https://` or
+`webcal://` link to an `.ics` file. Several calendars can be shown together, each in
+its own colour. The calendars are read-only here.
+
+The app needs a **microSD card**: each calendar is saved in `/cardputerOS/calendar/`
+as it was downloaded (`<n>.ics`, plus `<n>.meta` with the time it was last checked).
+The links usually contain a private token, so they are stored encrypted with the other
+secrets.
+
+**Downloading (stale-while-revalidate).** When you open the app it shows the saved copy
+straight away, without waiting for the network. Calendars that were last checked more
+than 15 minutes ago are then checked in the background while you use the app: the
+request carries the saved copy's ETag / Last-Modified, so an unchanged calendar costs
+one short request. A new version is written to a temporary file and only replaces the
+saved copy once it has arrived completely and looks like a calendar; the agenda then
+updates in place. If there is no Wi-Fi or the server fails, the saved copy stays in use
+and the header shows how old it is (`offline, as of 14:02`, `1 failed`). A failed check
+is retried after 10 minutes, or right away with `r`.
+
+| Keys | Action |
+|------|--------|
+| up / down, `fn`+`[` `]` | Move through the agenda |
+| Left / Right (`,` `/`) | Previous / next day with events |
+| `t` | Today (the next event that is not over yet) |
+| Enter | Event details: time, place and description (up / down scroll, Esc back) |
+| `r` or `opt`+`s` | Update all calendars now (connects to Wi-Fi first if needed) |
+| `c` or `opt`+`a` | Calendars: add, update, rename, change the link or colour, remove |
+
+To add one, press `c` → **+ Add calendar**, paste or type the link and give it a name
+(leave the name empty to use the calendar's own). If the link needs a user name and
+password (e.g. a private feed behind Basic authentication) say so when asked; most
+calendar links do not. The first download happens right away.
+
+The agenda covers the last 7 days and the next 120. Repeating events (daily, weekly,
+monthly, yearly rules with intervals, counts, end dates, weekdays such as "last Friday",
+exceptions and moved or cancelled single dates) and all-day and multi-day events are
+shown; times are converted from the calendar's time zone to the one set in Settings.
+Events that already ended are grey. Up to 500 occurrences per calendar are kept.
+Certificates work as described for Notes; a server seen for the first time, or a
+changed certificate, is only accepted when you update with `r` (the background check
+cannot ask and reports an error instead).
 
 ## Mesh (Meshtastic)
 

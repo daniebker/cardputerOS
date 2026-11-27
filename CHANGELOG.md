@@ -4,6 +4,20 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Calendar**: an agenda of calendars subscribed to by their `.ics` link
+  (`https://` or `webcal://`, e.g. Google's secret iCal address or a published
+  Outlook calendar), several at once, each in its own colour. Calendars are kept
+  on the microSD card (`/cardputerOS/calendar/`) and refreshed with the
+  stale-while-revalidate pattern: the saved copy is shown at once and stale
+  calendars are checked in the background with conditional requests (ETag /
+  Last-Modified); a new copy replaces the old one only once it is complete.
+  Repeating events, exceptions, all-day events and time zones are supported.
+  The links are stored encrypted.
+
 ## [0.9.0] - 2026-11-26
 
 ### Added

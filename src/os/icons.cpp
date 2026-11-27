@@ -132,6 +132,21 @@ void radar(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     g.fillCircle(cx - r / 2, cy + r / 3, s / 22, fg);
 }
 
+void calendar(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
+    // a page of a wall calendar: coloured top bar, two rings, a grid of days
+    const int top = y + s / 10, h = s - s / 10;
+    g.fillRoundRect(x + 2, top, s - 4, h, 6, dr::foreground);
+    g.fillRoundRect(x + 2, top, s - 4, h / 4 + 4, 6, fg);
+    g.fillRect(x + 2, top + h / 4, s - 4, 4, fg);
+    for (int i = 0; i < 2; i++) g.fillRoundRect(x + s / 3 + i * (s / 3) - 3, y, 6, s / 6 + 2, 3, dr::comment);
+    const int gx = x + 8, gy = top + h / 4 + 8, cw = (s - 16) / 4, ch = (h - h / 4 - 14) / 3;
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 4; c++) {
+            const bool today = r == 1 && c == 2;
+            g.fillRoundRect(gx + c * cw + 1, gy + r * ch + 1, cw - 4, ch - 4, 2, today ? dr::red : dr::comment);
+        }
+}
+
 void tiles(os::Gfx& g, int x, int y, int s, uint32_t fg, uint32_t) {
     // a 2x2 board of number tiles
     const int gap = 4, t = (s - 3 * gap) / 2;

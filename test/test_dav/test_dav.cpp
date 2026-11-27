@@ -138,6 +138,24 @@ void test_names_and_paths() {
     TEST_ASSERT_EQUAL_STRING("/x/", r.location.c_str());
 }
 
+void test_redirects_and_validators() {
+    dav::Url u;
+    TEST_ASSERT_TRUE(dav::parseUrl("https://cal.example.com:8443/feeds/me/basic.ics?token=abc", u));
+    TEST_ASSERT_EQUAL_STRING("/feeds/me/basic.ics?token=abc", u.path.c_str());
+    TEST_ASSERT_EQUAL_STRING("https://cal.example.com:8443", dav::origin(u).c_str());
+    TEST_ASSERT_EQUAL_STRING("https://other.example/x.ics", dav::resolveUrl(u, " https://other.example/x.ics").c_str());
+    TEST_ASSERT_EQUAL_STRING("https://cdn.example/x.ics", dav::resolveUrl(u, "//cdn.example/x.ics").c_str());
+    TEST_ASSERT_EQUAL_STRING("https://cal.example.com:8443/new/path.ics", dav::resolveUrl(u, "/new/path.ics").c_str());
+    TEST_ASSERT_EQUAL_STRING("https://cal.example.com:8443/feeds/me/other.ics", dav::resolveUrl(u, "other.ics").c_str());
+    TEST_ASSERT_EQUAL_STRING("https://cal.example.com:8443/feeds/me/basic.ics?token=new", dav::resolveUrl(u, "?token=new").c_str());
+    dav::HttpResponse r;
+    TEST_ASSERT_TRUE(dav::readHttpResponse(
+        feeder("HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\nLast-Modified: Fri, 27 Nov 2026 08:00:00 GMT\r\n\r\n", 3), false, r));
+    TEST_ASSERT_EQUAL(304, r.status);
+    TEST_ASSERT_EQUAL_STRING("\"v2\"", r.etag.c_str());
+    TEST_ASSERT_EQUAL_STRING("Fri, 27 Nov 2026 08:00:00 GMT", r.lastModified.c_str());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_multistatus_any_chunking);
@@ -146,5 +164,6 @@ int main(int, char**) {
     RUN_TEST(test_http_chunked_and_sink);
     RUN_TEST(test_http_edge_cases);
     RUN_TEST(test_names_and_paths);
+    RUN_TEST(test_redirects_and_validators);
     return UNITY_END();
 }

@@ -261,6 +261,25 @@ std::string hrefPath(const std::string& href) {
     return h;
 }
 
+std::string origin(const Url& u) {
+    std::string o = std::string(u.https ? "https://" : "http://") + u.host;
+    if (u.port != (u.https ? 443 : 80)) o += ":" + std::to_string(u.port);
+    return o;
+}
+
+std::string resolveUrl(const Url& base, const std::string& refIn) {
+    const std::string ref = trim(refIn);
+    const std::string lower = lowerStr(ref.substr(0, 8));
+    if (lower.compare(0, 7, "http://") == 0 || lower.compare(0, 8, "https://") == 0) return ref;
+    if (ref.compare(0, 2, "//") == 0) return std::string(base.https ? "https:" : "http:") + ref;
+    if (!ref.empty() && ref[0] == '/') return origin(base) + ref;
+    std::string dir = base.path.substr(0, base.path.find('?'));
+    dir = dir.substr(0, dir.rfind('/') + 1);
+    if (dir.empty()) dir = "/";
+    if (!ref.empty() && ref[0] == '?') return origin(base) + base.path.substr(0, base.path.find('?')) + ref;
+    return origin(base) + dir + ref;
+}
+
 std::string base64(const std::string& data) {
     static const char tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
@@ -357,6 +376,7 @@ bool readHttpResponse(const ReadFn& read, bool isHead, HttpResponse& out, const 
         bool chunked = false;
         out.etag.clear();
         out.location.clear();
+        out.lastModified.clear();
         for (;;) {
             if (!rd.line(line)) return false;
             if (line.empty()) break;
@@ -368,6 +388,7 @@ bool readHttpResponse(const ReadFn& read, bool isHead, HttpResponse& out, const 
             else if (name == "transfer-encoding") chunked = lowerStr(value).find("chunked") != std::string::npos;
             else if (name == "etag") out.etag = value;
             else if (name == "location") out.location = value;
+            else if (name == "last-modified") out.lastModified = value;
             else if (name == "connection") {
                 std::string v = lowerStr(value);
                 if (v.find("close") != std::string::npos) out.keepAlive = false;
