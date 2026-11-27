@@ -103,7 +103,8 @@ SSH terminal:
 ## Passphrase and encryption
 
 Saved secrets are stored encrypted: Wi-Fi passwords, SSH hosts and their passwords,
-the WebDAV passwords of Notes, Journal and Tasks, and the SSH private key. On the first start
+the WebDAV passwords of Notes, Journal and Tasks, the Calendar links and passwords,
+and the SSH private key. On the first start
 with this version you choose a passphrase (at least 6 characters); any secrets already
 stored are encrypted with it right away. From then on the passphrase is asked for each
 time the Cardputer starts. Waking from sleep does not ask again. Until it is entered
@@ -284,6 +285,134 @@ downloaded; otherwise the newer file is downloaded and the changes are applied t
 again. Not supported: Mindwtr's end-to-end encrypted sync, and creating the next copy of
 a repeating task when it is completed (complete those in Mindwtr). Certificates work as
 described for Notes; the password is stored encrypted.
+
+## Calendar
+
+Launcher → **Calendar**. An agenda of calendars you subscribe to by their **.ics
+link**: the "Secret address in iCal format" of a Google calendar, a published
+Outlook / Office 365 calendar, a public iCloud calendar, or any other `https://` or
+`webcal://` link to an `.ics` file. Several calendars can be shown together, each in
+its own colour. The calendars are read-only here.
+
+### Adding calendars
+
+You need a microSD card in the Cardputer, a saved Wi-Fi network (Settings → Wi-Fi) and
+the calendar's **iCal / ICS link**. Up to 8 calendars can be added.
+
+**1. Get the link.** It is the address other apps use to *subscribe* to the calendar
+(it usually ends in `.ics` or starts with `webcal://`):
+
+- **Google Calendar** (calendar.google.com on a computer): Settings → under *Settings
+  for my calendars* pick the calendar → *Integrate calendar* → copy **Secret address in
+  iCal format**. (The *Public address* only works if the calendar is made public.)
+- **Outlook.com / Microsoft 365** (Outlook on the web): Settings → Calendar → *Shared
+  calendars* → *Publish a calendar*: choose the calendar and *Can view all details*,
+  press *Publish* and copy the **ICS** link.
+- **iCloud** (Calendar on a Mac or iPhone, or icloud.com): share the calendar, switch on
+  **Public Calendar** and copy the `webcal://` link.
+- **Nextcloud**: in Calendar, the calendar's menu → *Share link* → copy the
+  **subscription link**.
+- **Others**: look for "iCal", "ICS", "subscribe" or "publish" in the calendar's
+  sharing settings.
+
+Treat a secret link like a password: anyone who has it can read the calendar. If it
+leaks, reset it in the calendar's settings and change it on the Cardputer (`c` → the
+calendar → **Change link**).
+
+**2a. Add it on the Cardputer.** Open **Calendar**, press `c` → **+ Add calendar**,
+type the link, answer *no* when asked about a user name and password (unless the feed
+needs one), and give the calendar a name (leave it empty to use the calendar's own
+name). It is downloaded straight away.
+
+**2b. Or add several from a computer** (easier, as the links are long). Put the SD card
+in your computer and create a plain text file `/cardputerOS/calendar/calendars.txt`
+(create the folders if they do not exist yet), with one calendar per line: an optional
+name, then the link. Empty lines and lines starting with `#` are ignored:
+
+```
+# name (optional)   link
+Work       https://calendar.google.com/calendar/ical/.../basic.ics
+Holidays:  webcal://example.com/holidays.ics
+https://example.com/team.ics
+```
+
+Put the card back and open **Calendar** (or, if it is already open, it notices the card
+within a few seconds; `c` → **Import from SD card** reads the file at any time). The
+app lists what it added and downloads the new calendars. Because the links contain a
+private token, they are then stored encrypted on the device and **the file is deleted
+from the card**. Lines it could not use (no link, or more than 8 calendars) are written
+back to the file with a note so you can fix them; links that are already subscribed are
+skipped.
+
+The file is also found at the top of the card or in `/cardputerOS/`, and under names such
+as `Calendars.txt`, `calendar.txt` or `calendars.txt.txt` (Windows hides the extension,
+so a file typed as `calendars.txt` often ends up with that name). Save it as plain text:
+UTF-8 or Notepad's "Unicode" both work; in TextEdit use Format → Make Plain Text first.
+A feed that needs a user name and password can be imported too; add the login
+afterwards with `c` → the calendar → **Change link**.
+
+**3. First download.** The first time the Cardputer talks to a server it shows the
+server's certificate fingerprint and asks whether to trust it: answer `y`. (This only
+happens when you add a calendar or press `r`; a check in the background cannot ask, so
+a calendar on a new server shows an error until you press `r`.) The calendar then
+appears in the agenda, in its own colour (`c` → the calendar → **Colour** changes it).
+
+**If a calendar does not show up**, press `c`: each calendar is listed with its state
+(`not downloaded`, `error`, or when it was last checked), and the calendar's **Info**
+shows the last error. Common causes: no saved Wi-Fi network in range, a link that is
+not the iCal / ICS address (the app says "did not return a calendar"), or a link that
+was reset in the calendar's settings (HTTP 404).
+
+### How calendars are stored and updated
+
+The app needs a **microSD card**: each calendar is saved in `/cardputerOS/calendar/`
+as it was downloaded (`<n>.ics`, plus `<n>.meta` with the time it was last checked).
+Calendars are downloaded one at a time and written to the card in 4 KB batches. A
+calendar is never held in memory as a whole: after each download it is read twice as a
+stream and turned into an index on the card (`<n>.occ`: one small record per event in
+the next months, `<n>.txt`: the event texts), and the agenda keeps only two weeks of
+events in memory, loading the next two weeks from the card as you scroll. Descriptions
+are only read when you open an event.
+The links usually contain a private token, so they are stored encrypted with the other
+secrets.
+
+**Downloading (stale-while-revalidate).** When you open the app it shows the saved copy
+straight away, without waiting for the network. Calendars that were last checked more
+than 15 minutes ago are then checked in the background while you use the app: the
+request carries the saved copy's ETag / Last-Modified, so an unchanged calendar costs
+one short request. A new version is written to a temporary file and only replaces the
+saved copy once it has arrived completely and looks like a calendar; the agenda then
+updates in place. If there is no Wi-Fi or the server fails, the saved copy stays in use
+and the header shows how old it is (`offline, as of 14:02`, `1 failed`). A failed check
+is retried after 10 minutes, or right away with `r`.
+
+**Wi-Fi.** If a calendar needs checking when you open the app and Wi-Fi is off, the app
+joins the strongest saved network by itself (the header shows `connecting to Wi-Fi...`
+while the saved agenda stays usable) and **switches Wi-Fi off again once the downloads
+are done**. The same goes for `r`. A connection that was already up when you opened the
+app is left alone, and so is one in use when you leave the app before the download has
+finished (another app may need it then). If no saved network is in range within 30
+seconds the app stops trying and shows `no Wi-Fi in range`.
+
+### Using the agenda
+
+| Keys | Action |
+|------|--------|
+| up / down, `fn`+`[` `]` | Move through the agenda |
+| Left / Right (`,` `/`) | Previous / next day with events |
+| `t` | Today (the next event that is not over yet) |
+| Enter | Event details: time, place and description (up / down scroll, Esc back) |
+| `r` or `opt`+`s` | Update all calendars now (connects to Wi-Fi first if needed) |
+| `c` or `opt`+`a` | Calendars: add, import from the SD card, update, rename, change the link or colour, info, remove |
+
+The agenda covers the last 7 days and the next 120. Repeating events (daily, weekly,
+monthly, yearly rules with intervals, counts, end dates, weekdays such as "last Friday",
+exceptions and moved or cancelled single dates) and all-day and multi-day events are
+shown; times are converted from the calendar's time zone to the one set in Settings.
+Events that already ended are grey. Up to 4000 occurrences per calendar are indexed.
+Certificates work as described for Notes; a server seen for the first time, or a
+changed certificate, is only accepted when you update with `r` (the background check
+cannot ask and reports an error instead).
 
 ## Mesh (Meshtastic)
 

@@ -35,6 +35,11 @@ bool connect(const std::string& ssid, const std::string& pass, uint32_t timeoutM
 // connected (also after a manual disconnect). Waits up to timeoutMs; `idle` is
 // called while waiting. False if no saved network could be joined.
 bool connectSaved(uint32_t timeoutMs, void (*idle)() = nullptr);
+// Non-blocking: lets the auto-connect logic join a saved network right away
+// (also after a manual disconnect). Check connected() to see when it is up.
+void connectSoon();
+// True after disconnect(): the auto-connect logic stays off until something connects.
+bool autoConnectOff();
 bool isSaved(const std::string& ssid);
 bool savedPassword(const std::string& ssid, std::string& pass);
 void forget(const std::string& ssid);

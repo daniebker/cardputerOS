@@ -267,6 +267,14 @@ bool connectSaved(uint32_t timeoutMs, void (*idle)()) {
     return true;
 }
 
+void connectSoon() {
+    if (!begun) return;
+    userDisconnected = false;
+    if (!connected() && !scanning && target.empty()) nextAttempt = millis();
+}
+
+bool autoConnectOff() { return userDisconnected; }
+
 void holdScans(bool hold) {
     scansHeld = hold;
     // a scan of ours still running: its results now belong to whoever reads them

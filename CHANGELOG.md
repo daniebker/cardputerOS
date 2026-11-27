@@ -4,6 +4,47 @@ All notable changes to cardputerOS are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Calendar**: an agenda of calendars subscribed to by their `.ics` link
+  (`https://` or `webcal://`, e.g. Google's secret iCal address or a published
+  Outlook calendar), several at once, each in its own colour. Calendars are kept
+  on the microSD card (`/cardputerOS/calendar/`) and refreshed with the
+  stale-while-revalidate pattern: the saved copy is shown at once and stale
+  calendars are checked in the background with conditional requests (ETag /
+  Last-Modified); a new copy replaces the old one only once it is complete.
+  Repeating events, exceptions, all-day events and time zones are supported.
+  The links are stored encrypted.
+- **Calendar**: calendars can be added from a computer by listing their links
+  in `/cardputerOS/calendar/calendars.txt` on the microSD card. The app picks the
+  file up when it opens or when the card is inserted, downloads the new
+  calendars, stores the links encrypted and deletes the file.
+  The file is also found at the top of the card or in `/cardputerOS/`, under
+  names such as `calendars.txt.txt`, and in UTF-16; `c` → Import from SD card
+  imports on request and explains what it found.
+- **Calendar**: opening the app with calendars to check connects to a saved
+  Wi-Fi network by itself (without blocking the agenda) and disconnects again
+  once the downloads are done, unless the connection was already up.
+
+### Changed
+
+- **Calendar**: calendars are no longer held in memory. Downloads are written to
+  the SD card in 4 KB batches, one calendar at a time; each calendar is then
+  turned into an index on the card in two streaming passes (`<n>.occ`, `<n>.txt`),
+  and the agenda loads two weeks at a time from those files as you scroll.
+  Descriptions are read when an event is opened.
+
+### Fixed
+
+- **Calendar**: a large calendar no longer crashes the device after it is
+  downloaded. Reading it keeps within the free memory (events outside the
+  agenda's window are skipped, and only part of a calendar that is still too
+  large is shown, with a note under `c` → the calendar → Info); downloads wait
+  until there is memory for the TLS connection. Time zones defined from 1601
+  (Outlook / Exchange) are converted much faster.
+
 ## [0.9.0] - 2026-11-26
 
 ### Added

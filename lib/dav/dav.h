@@ -49,12 +49,18 @@ struct Url {
 bool parseUrl(const std::string& text, Url& out);
 // Turns an href from a multistatus (absolute URL or absolute path) into a path.
 std::string hrefPath(const std::string& href);
+// The absolute URL a reference (e.g. a redirect's Location) points to, seen from `base`:
+// "https://other/x", "//other/x", "/x" and "x" (next to base's last path segment).
+std::string resolveUrl(const Url& base, const std::string& ref);
+// "https://host[:port]" of a URL (the port only when it is not the default).
+std::string origin(const Url& u);
 std::string base64(const std::string& data);
 
 struct HttpResponse {
     int status = 0;
     std::string etag;
     std::string location;    // Location header (redirects)
+    std::string lastModified;  // Last-Modified header
     std::string body;        // filled when no sink is given
     bool truncated = false;  // body was larger than maxBody
     bool keepAlive = false;  // connection can be reused
