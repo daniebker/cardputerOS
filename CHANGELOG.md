@@ -21,6 +21,9 @@ project uses [Semantic Versioning](https://semver.org/).
   in `/cardputerOS/calendar/calendars.txt` on the microSD card. The app picks the
   file up when it opens or when the card is inserted, downloads the new
   calendars, stores the links encrypted and deletes the file.
+  The file is also found at the top of the card or in `/cardputerOS/`, under
+  names such as `calendars.txt.txt`, and in UTF-16; `c` → Import from SD card
+  imports on request and explains what it found.
 
 ## [0.9.0] - 2026-11-26
 

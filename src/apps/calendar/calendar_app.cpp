@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -39,7 +40,9 @@ constexpr uint32_t kRetryMs = 10 * 60000;   // a failed background check is retr
 constexpr int kPastDays = 7, kFutureDays = 120;  // the agenda's window around today
 constexpr size_t kMaxPerCalendar = 500;     // occurrences kept per calendar
 constexpr int64_t kDay = 86400;
-const char* kImportFile = "/cardputerOS/calendar/calendars.txt";  // links added on a computer
+// Links added on a computer: calendars.txt in kImportDirs[0] (the other folders,
+// and names such as calendars.txt.txt, are accepted too).
+const char* const kImportDirs[] = {"/cardputerOS/calendar", "/cardputerOS/calendars", "/cardputerOS", "/"};
 constexpr uint32_t kCardPollMs = 3000;      // looking for a card while none is inserted
 const char* kNoCard = "No microSD card. Calendars are kept on the card: insert one and press r.";
 
@@ -252,17 +255,72 @@ private:
     // computer, as links are long to type). The file is then deleted, as the links
     // usually carry a private token and are stored encrypted on the device; lines
     // that could not be used are written back for fixing.
-    void importFromCard() {
+    // The import file's path, or "". `listing`: the names in the documented folder
+    // (to explain to the user what was found instead).
+    static std::string findImportFile(std::string& listing) {
+        listing.clear();
+        for (const char* dir : kImportDirs) {
+            File d = hal::sdFs().open(dir);
+            if (!d) continue;
+            if (!d.isDirectory()) {
+                d.close();
+                continue;
+            }
+            std::string found;
+            for (File e = d.openNextFile(); e; e = d.openNextFile()) {
+                std::string name = e.name();
+                const bool isDir = e.isDirectory();
+                e.close();
+                const size_t slash = name.rfind('/');
+                if (slash != std::string::npos) name = name.substr(slash + 1);
+                if (dir == kImportDirs[0] && listing.size() < 200) listing += (listing.empty() ? "" : ", ") + name;
+                if (!isDir && found.empty() && calcfg::isImportName(name))
+                    found = std::string(dir) + (strcmp(dir, "/") ? "/" : "") + name;
+            }
+            d.close();
+            if (!found.empty()) return found;
+        }
+        return std::string();
+    }
+
+    // `report`: the user asked, so say what happened even when nothing was found.
+    void importFromCard(bool report = false) {
         hal::SdSession session;
-        if (!session.ok() || !hal::sdFs().exists(kImportFile)) return;
-        File f = hal::sdFs().open(kImportFile, "r");
-        if (!f) return;
-        std::string text;
+        if (!session.ok()) {
+            if (report) importProblem_ = kNoCard;
+            return;
+        }
+        std::string listing;
+        const std::string path = findImportFile(listing);
+        if (path.empty()) {
+            if (report)
+                importProblem_ = std::string("No calendars.txt on the SD card. Put it in ") + kImportDirs[0] +
+                                 "/ (the top of the card and /cardputerOS/ are checked too)." +
+                                 (listing.empty() ? std::string() : "\nIn " + std::string(kImportDirs[0]) + "/: " + listing);
+            return;
+        }
+        File f = hal::sdFs().open(path.c_str(), "r");
+        if (!f) {
+            importProblem_ = "Could not open " + path + " on the SD card.";
+            return;
+        }
+        std::string raw;
         const size_t size = std::min<size_t>(f.size(), 32 * 1024);
-        text.resize(size);
-        text.resize(size ? f.read((uint8_t*)&text[0], size) : 0);
+        raw.resize(size);
+        raw.resize(size ? f.read((uint8_t*)&raw[0], size) : 0);
         f.close();
+        std::string problem;
+        const std::string text = calcfg::decode(raw, problem);
+        if (!problem.empty()) {
+            importProblem_ = path + ": " + problem;
+            return;
+        }
         const calcfg::File cfg = calcfg::parse(text);
+        if (report && cfg.calendars.empty() && cfg.unreadable.empty()) {
+            importProblem_ = path + " has no calendar links in it (one per line: a name, then the https:// or "
+                                    "webcal:// link).";
+            return;
+        }
         std::vector<std::string> left;
         int added = 0, known = 0;
         for (const calcfg::Line& c : cfg.calendars) {
@@ -292,12 +350,12 @@ private:
         }
         for (auto& l : cfg.unreadable) left.push_back(l);
         if (added) calstore::saveSubs(subs_);
-        hal::sdFs().remove(kImportFile);
+        hal::sdFs().remove(path.c_str());
         if (!left.empty()) {
             const std::string out = calcfg::leftover(
                 left, "Not imported (no https:// or webcal:// link, or more than " +
                           std::to_string(calstore::kMaxCalendars) + " calendars):");
-            File w = hal::sdFs().open(kImportFile, "w");
+            File w = hal::sdFs().open(path.c_str(), "w");
             if (w) {
                 w.write((const uint8_t*)out.data(), out.size());
                 w.close();
@@ -311,6 +369,12 @@ private:
     // Tells what the import did and downloads the new calendars (asking about
     // their servers' certificates). Needs the app in front.
     void announceImport() {
+        if (!importProblem_.empty()) {
+            const std::string msg = importProblem_;
+            importProblem_.clear();
+            ui::alert("Import from SD card", msg);
+            redraw();
+        }
         if (!importAdded_ && !importKnown_ && !importLeft_) return;
         std::string msg;
         if (importAdded_)
@@ -875,12 +939,26 @@ private:
                 else line += "  (" + ageText(s.checkedAt) + ")";
                 items.push_back(line);
             }
-            if ((int)subs_.size() < calstore::kMaxCalendars) items.push_back("+ Add calendar");
+            const bool canAdd = (int)subs_.size() < calstore::kMaxCalendars;
+            if (canAdd) items.push_back("+ Add calendar");
+            items.push_back("+ Import from SD card (calendars.txt)");
             const int pick = ui::choose("Calendars", items, initial);
             if (pick < 0) break;
             initial = pick;
             if (pick >= (int)subs_.size()) {
-                addCalendar();
+                if (canAdd && pick == (int)subs_.size()) {
+                    addCalendar();
+                } else {
+                    ui::busy("Reading the SD card...");
+                    importFromCard(true);
+                    if (!importProblem_.empty() || importAdded_ || importKnown_ || importLeft_) {
+                        if (!cardOk_ && importProblem_.empty()) loadAll();
+                        announceImport();
+                    } else {
+                        importProblem_ = "Nothing to import.";
+                        announceImport();
+                    }
+                }
                 break;
             }
             if (!editCalendar(subs_[pick].id)) break;
@@ -1043,6 +1121,7 @@ private:
     bool cardOk_ = false, opening_ = true, paused_ = false;
     uint32_t lastCardPoll_ = 0;
     int importAdded_ = 0, importKnown_ = 0, importLeft_ = 0;
+    std::string importProblem_;
 
     // background revalidation
     std::vector<int> queue_;

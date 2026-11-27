@@ -335,8 +335,13 @@ Holidays:  webcal://example.com/holidays.ics
 https://example.com/team.ics
 ```
 
-The app reads the file when it is opened, or when the card is inserted while the app
-is open. It adds the calendars that are not subscribed yet and downloads them right
+The app reads the file when it is opened, when the card is inserted while the app is
+open, or when you choose `c` → **Import from SD card**, which also tells you what it
+found if nothing could be imported. The file is also found at the top of the card or in
+`/cardputerOS/`, and under names such as `Calendars.txt`, `calendar.txt` or
+`calendars.txt.txt` (Windows hides the extension, so a file typed as `calendars.txt`
+often ends up with that name). Plain text is expected: UTF-8 or Notepad's "Unicode"
+(UTF-16) both work; save from TextEdit with Format → Make Plain Text. It adds the calendars that are not subscribed yet and downloads them right
 away (asking about each new server's certificate). Because the links usually contain a
 private token, they are then stored encrypted on the device and **the file is deleted
 from the card**. Lines that could not be used (no link, or more than 8 calendars) are

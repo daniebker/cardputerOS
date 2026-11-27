@@ -33,8 +33,42 @@ void test_parse() {
     TEST_ASSERT_EQUAL(1, (int)calcfg::parse(left).unreadable.size());
 }
 
+void test_names_and_encodings() {
+    TEST_ASSERT_TRUE(calcfg::isImportName("calendars.txt"));
+    TEST_ASSERT_TRUE(calcfg::isImportName("/cardputerOS/Calendars.TXT"));
+    TEST_ASSERT_TRUE(calcfg::isImportName("calendars.txt.txt"));
+    TEST_ASSERT_TRUE(calcfg::isImportName("calendar.txt"));
+    TEST_ASSERT_FALSE(calcfg::isImportName("._calendars.txt"));
+    TEST_ASSERT_FALSE(calcfg::isImportName("calendars.rtf"));
+    TEST_ASSERT_FALSE(calcfg::isImportName("1.ics"));
+
+    std::string problem;
+    // UTF-16 LE with BOM (Notepad "Unicode"), and without
+    const std::string text = "Work https://a.example/x.ics\r\n";
+    std::string le = "\xFF\xFE", nobom;
+    for (char c : text) {
+        le += c;
+        le += '\0';
+        nobom += c;
+        nobom += '\0';
+    }
+    TEST_ASSERT_EQUAL_STRING(text.c_str(), calcfg::decode(le, problem).c_str());
+    TEST_ASSERT_TRUE(problem.empty());
+    TEST_ASSERT_EQUAL_STRING(text.c_str(), calcfg::decode(nobom, problem).c_str());
+    std::string be = "\xFE\xFF";
+    for (char c : text) {
+        be += '\0';
+        be += c;
+    }
+    TEST_ASSERT_EQUAL_STRING(text.c_str(), calcfg::decode(be, problem).c_str());
+    TEST_ASSERT_EQUAL_STRING(text.c_str(), calcfg::decode(text, problem).c_str());
+    TEST_ASSERT_EQUAL_STRING("", calcfg::decode("{\\rtf1\\ansi https://a.example/x.ics}", problem).c_str());
+    TEST_ASSERT_FALSE(problem.empty());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_parse);
+    RUN_TEST(test_names_and_encodings);
     return UNITY_END();
 }

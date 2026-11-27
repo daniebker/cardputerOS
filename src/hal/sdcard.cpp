@@ -17,7 +17,7 @@ bool mount() {
         return true;
     }
     // The display driver already started the shared bus as the Arduino SPI object.
-    if (SD.begin(SD_CS_PIN, SPI, 20000000, "/sd", 2)) {
+    if (SD.begin(SD_CS_PIN, SPI, 20000000, "/sd", 4)) {  // up to 4 open files (a download, a folder listing...)
         mounts = 1;
         return true;
     }

@@ -1,5 +1,6 @@
 #include "calcfg.h"
 
+#include <algorithm>
 #include <cctype>
 
 namespace calcfg {
@@ -57,6 +58,59 @@ File parse(const std::string& text) {
             name = name.substr(1, name.size() - 2);
         c.name = trim(name);
         out.calendars.push_back(c);
+    }
+    return out;
+}
+
+bool isImportName(const std::string& fileName) {
+    std::string n = lower(fileName);
+    const size_t slash = n.rfind('/');
+    if (slash != std::string::npos) n = n.substr(slash + 1);
+    if (n.empty() || n[0] == '.') return false;  // hidden, or macOS "._name"
+    if (n.compare(0, 8, "calendar") != 0) return false;
+    return n.size() >= 4 && n.compare(n.size() - 4, 4, ".txt") == 0;
+}
+
+std::string decode(const std::string& raw, std::string& problem) {
+    problem.clear();
+    if (raw.compare(0, 5, "{\\rtf") == 0) {
+        problem = "The file is rich text (RTF). Save it as plain text (in TextEdit: Format > Make Plain Text).";
+        return std::string();
+    }
+    bool le = false, be = false;
+    size_t start = 0;
+    if (raw.size() >= 2 && (unsigned char)raw[0] == 0xFF && (unsigned char)raw[1] == 0xFE) le = true, start = 2;
+    else if (raw.size() >= 2 && (unsigned char)raw[0] == 0xFE && (unsigned char)raw[1] == 0xFF) be = true, start = 2;
+    else if (raw.size() >= 4) {
+        // no byte order mark: text with a zero byte in every other position is UTF-16
+        size_t zerosOdd = 0, zerosEven = 0, n = std::min<size_t>(raw.size(), 200);
+        for (size_t i = 0; i < n; i++)
+            if (raw[i] == 0) (i % 2 ? zerosOdd : zerosEven)++;
+        if (zerosOdd > n / 4) le = true;
+        else if (zerosEven > n / 4) be = true;
+    }
+    if (!le && !be) {
+        if (raw.find('\0') != std::string::npos) {
+            problem = "The file is not plain text. Save it as plain text (.txt).";
+            return std::string();
+        }
+        return raw;
+    }
+    std::string out;
+    for (size_t i = start; i + 1 < raw.size(); i += 2) {
+        const unsigned lo = (unsigned char)raw[i + (le ? 0 : 1)], hi = (unsigned char)raw[i + (le ? 1 : 0)];
+        const unsigned c = hi << 8 | lo;
+        if (c < 0x80) out.push_back((char)c);
+        else if (c < 0x800) {
+            out.push_back((char)(0xC0 | (c >> 6)));
+            out.push_back((char)(0x80 | (c & 0x3F)));
+        } else if (c < 0xD800 || c > 0xDFFF) {
+            out.push_back((char)(0xE0 | (c >> 12)));
+            out.push_back((char)(0x80 | ((c >> 6) & 0x3F)));
+            out.push_back((char)(0x80 | (c & 0x3F)));
+        } else {
+            out.push_back('?');  // outside the BMP: not needed for links
+        }
     }
     return out;
 }

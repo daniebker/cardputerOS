@@ -25,6 +25,15 @@ struct File {
 
 File parse(const std::string& text);
 
+// True for names the import file may have been given by mistake or by an editor:
+// calendars.txt, Calendar.txt, calendars.txt.txt (hidden extension on Windows)...
+// Not for macOS's "._" companion files.
+bool isImportName(const std::string& fileName);
+
+// The file's bytes as UTF-8 text: UTF-16 files (Notepad's "Unicode") are
+// converted. Sets `problem` (and returns "") for formats that are not plain text.
+std::string decode(const std::string& raw, std::string& problem);
+
 // Text for the file when some lines could not be imported: an explanation and
 // those lines, so they can be fixed on a computer.
 std::string leftover(const std::vector<std::string>& lines, const std::string& why);
